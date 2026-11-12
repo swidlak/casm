@@ -15,7 +15,7 @@ import { ConnectionBanner, offlineNote } from "./connection";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { Row, Images, type ToolTime } from "./transcript";
+import { Row, Images, WorkDetails, type ToolTime } from "./transcript";
 import { EntryTime, entryTimes } from "./entry-time";
 import type {
   Agent,
@@ -53,6 +53,7 @@ import { MAX_IMAGES, imageFiles, prepareImage } from "./attach";
 import { NewAgentKeys, NewAgentWelcome } from "./new-agent";
 import { SignOut } from "./sign-out";
 import { DeviceSettings } from "./device-settings";
+import { readWorkView, writeWorkView, transcriptRows, rowAt, anchorRows, type WorkView, type RowAnchor } from "./work-details";
 import { readChatMemory, recentChats, writeChatMemory, type ChatMemory } from "./chat-memory";
 import { FindBar, FindGlyph, findPattern, revealMatch, useFindHighlights, type FindState } from "./find-in-chat";
 import { pageAround, shownIndex, showPage, windowNewer, windowOlder, WINDOW_PAGE } from "./find-window";
@@ -216,6 +217,7 @@ function App() {
   // Status text of pending rows with an action in flight, by key(host, id).
   const rowNotes = useRef(new Map<string, string>()).current;
   const [sidebar, showSidebar] = useState(false);
+  const [workView, setWorkView] = useState<WorkView>(() => readWorkView(localStorage));
   const [chatMemory, setChatMemory] = useState<ChatMemory>(() => readChatMemory(localStorage));
   const [viewportDebug, setViewportDebug] = useState(false);
   const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
@@ -1053,7 +1055,7 @@ function App() {
             {online ? fresh ? "Connected" : "Syncing…" : "Offline · reconnecting…"}
           </span>
           {viewportDebug && <ViewportDebug close={() => setViewportDebug(false)} />}
-          <DeviceSettings memory={chatMemory} change={(value) => { writeChatMemory(localStorage, value); setChatMemory(value); }} />
+          <DeviceSettings memory={chatMemory} workView={workView} changeWorkView={(value) => { writeWorkView(localStorage, value); setWorkView(value); }} change={(value) => { writeChatMemory(localStorage, value); setChatMemory(value); }} />
           <SignOut host={hosts.find((h) => !h.id)?.name ?? ""} signOut={() => {
             localStorage.removeItem("casm.token");
             void cache.current?.clear();
@@ -1109,7 +1111,8 @@ function App() {
             <ImagePreviewContext.Provider value={setImagePreview}><FileLinksContext.Provider value={fileLinks}>
             <CasmAgentsContext.Provider value={casmAgents}>
             <Transcript
-              key={ckey}
+              workView={workView}
+              key={`${ckey}:${workView}`}
               ckey={ckey}
               pillRow={pillRow}
               pills={(online && agent?.status === "running") || rows.length > 0}
@@ -1406,6 +1409,7 @@ function Entry({ item, time, expansion, earlier }: { item: Item; time?: ToolTime
   </div>;
 }
 function Transcript({
+  workView,
   ckey,
   older,
   pillRow,
@@ -1413,6 +1417,7 @@ function Transcript({
   find,
   history,
 }: {
+  workView: WorkView;
   ckey: string;
   older: () => Promise<void>;
   pillRow: HTMLElement | null;
@@ -1549,6 +1554,10 @@ function Transcript({
   useFindHighlights(scrollerEl, find);
   const shown = c.window?.items ?? items;
   const shownStart = c.window?.start ?? c.start;
+  const visibleRows = transcriptRows(shown, workView);
+  const anchor = useRef<RowAnchor>(undefined);
+  const anchored = anchorRows(visibleRows, shownStart, anchor.current);
+  anchor.current = anchored;
   const opening = useRef<number>(undefined);
   const paging = useRef(false);
   const target = find?.target;
@@ -1579,9 +1588,9 @@ function Transcript({
       }
       if (at < 0) return;
       if (remount) {
-        opening.current = at;
+        opening.current = rowAt(transcriptRows(c.window?.items ?? items, workView), at);
         setView((v) => v + 1);
-      } else ref.current?.scrollToIndex({ index: at, align: "center" });
+      } else ref.current?.scrollToIndex({ index: rowAt(transcriptRows(c.window?.items ?? items, workView), at), align: "center" });
       await revealMatch(() => scroller.current, target, findPattern(find.query), live);
     })().catch(() => {});
   }, [target?.seq]);
@@ -1601,7 +1610,7 @@ function Transcript({
       paging.current = false;
     }
   };
-  const first = 100000 + shownStart;
+  const first = anchored.first;
   return (
     <div
       ref={box}
@@ -1624,13 +1633,13 @@ function Transcript({
       <Virtuoso
         key={view}
         ref={ref}
-        data={shown}
+        data={visibleRows}
         firstItemIndex={first}
         initialTopMostItemIndex={
           opening.current !== undefined
             ? { index: opening.current, align: "center" }
             : c.scroll !== undefined
-            ? { index: Math.max(first, c.scroll) }
+            ? { index: first + rowAt(visibleRows, c.scroll - 100000 - shownStart) }
             : { index: "LAST" }
         }
         computeItemKey={(_, i) => i.id}
@@ -1653,16 +1662,21 @@ function Transcript({
           c.atBottom = v;
         }}
         rangeChanged={(r) => {
-          c.scroll = r.startIndex;
+          c.scroll = 100000 + shownStart + (visibleRows[r.startIndex - first]?.start ?? 0);
         }}
         startReached={() => {
           if (c.window) { if (c.window.start > 0) void page("older"); }
           else if (c.loaded && c.start > 0) void older();
         }}
         endReached={() => { if (c.window) void page("newer"); }}
-        itemContent={(i, item) => (
-          <Entry item={item} time={c.toolTimes?.[item.id]} expansion={(c.expanded ??= {})} earlier={i - 100000 < restartAt} />
-        )}
+        itemContent={(_, row) => {
+          const expansion = (c.expanded ??= {});
+          const entries = row.items.map((item, index) => <Entry key={item.id} item={item} time={c.toolTimes?.[item.id]} expansion={expansion} earlier={shownStart + row.start + index < restartAt} />);
+          return row.work
+            ? <WorkDetails id={row.id} items={row.items} expansion={expansion}
+                reveal={find?.target && row.items.some((item) => item.id === find.target!.match.itemId) ? find.target.seq : undefined}>{entries}</WorkDetails>
+            : entries;
+        }}
         context={{
           start: shownStart,
           loading: c.loading,
