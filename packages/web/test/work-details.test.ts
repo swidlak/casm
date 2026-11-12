@@ -35,3 +35,22 @@ test("compact is the default, detailed persists, unavailable storage is harmless
   assert.equal(readWorkView(blocked), "compact");
   assert.doesNotThrow(() => writeWorkView(blocked, "compact"));
 });
+
+test("routine approval notices join tool activity, but unrelated warnings and review failures remain visible", () => {
+  const approved: Item = { kind: "notice", id: "old-approval", level: "warning", text: "Automatic approval review approved (risk: low, authorization: high): local calculation" };
+  const current: Item = { ...tool("review:current"), name: "Review approved" };
+  const denied: Item = { ...tool("review:denied"), name: "Review denied", status: "error" };
+  const strict: Item = { kind: "notice", id: "strict-review:turn:1", level: "info", text: "Codex requires a fresh automatic approval review for this turn." };
+  const items: Item[] = [message("a"), approved, tool("command"), current, strict, denied,
+    { ...approved, id: "old-denied", text: "Automatic approval review denied (risk: high): not authorized" },
+    { kind: "notice", id: "warning", text: "Reviewer is retrying", level: "warning" },
+    { ...approved, id: "error", level: "error" },
+    { ...approved, id: "restart", restart: true },
+    { ...approved, id: "unknown", text: "Automatic approval review approvedSomethingUnexpected" }, message("b")];
+  const rows = transcriptRows(items, "compact");
+  assert.deepEqual(rows.filter((r) => r.work).map((r) => r.items.map((i) => i.id)), [["old-approval", "command", "review:current", "strict-review:turn:1"]]);
+  assert.equal(rows.find((r) => r.id === "review:denied")?.work, false);
+  assert.equal(rowAt(rows, 3), 1);
+  assert.equal(transcriptRows(items, "detailed").length, items.length);
+  assert.deepEqual(rows.flatMap((r) => r.items), items);
+});

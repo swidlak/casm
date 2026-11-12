@@ -10,11 +10,24 @@ export function writeWorkView(storage: Pick<Storage, "setItem">, value: WorkView
   try { storage.setItem(storageKey, value); } catch { /* Optional device preference. */ }
 }
 export type TranscriptRow = { id: string; start: number; items: Item[]; work: boolean };
-// Messages, plans and notices always remain in their original order and visible.
+// Earlier Codex sessions reported successful reviews as warning notices.
+// Recognize only this exact routine outcome; other warnings and failures stay visible.
+function routineReviewNotice(item: Extract<Item, { kind: "notice" }>) {
+  if (item.restart || item.level === "error") return false;
+  return /^Automatic approval review approved(?:$|\s*[:(])/.test(item.text)
+    || (item.id.startsWith("strict-review:") && item.text === "Codex requires a fresh automatic approval review for this turn.");
+}
+function technicalActivity(item: Item) {
+  if (item.kind === "notice") return routineReviewNotice(item);
+  // An explicit review failure must remain visible even when tools are grouped.
+  if (item.kind === "tool" && item.id.startsWith("review:") && item.status === "error") return false;
+  return item.kind === "tool" || item.kind === "reasoning" || item.kind === "subagent";
+}
+// Messages, plans and actionable notices keep their original order and visibility.
 export function transcriptRows(items: Item[], view: WorkView): TranscriptRow[] {
   const rows: TranscriptRow[] = [];
   for (const [start, item] of items.entries()) {
-    const work = view === "compact" && ["tool", "reasoning", "subagent"].includes(item.kind);
+    const work = view === "compact" && technicalActivity(item);
     const previous = rows.at(-1);
     if (work && previous?.work) previous.items.push(item);
     else rows.push({ id: work ? `work:${item.id}` : item.id, start, items: [item], work });
