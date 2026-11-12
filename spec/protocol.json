@@ -600,6 +600,39 @@
                 "id"
               ]
             }
+          },
+          "defaults": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string"
+              },
+              "systemPrompt": {
+                "type": "string"
+              },
+              "mcpServers": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "env": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "required": [
