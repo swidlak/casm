@@ -6,7 +6,7 @@ export function providerDefaults(home: string | null, provider: ProviderId): Age
   if (!home) return {};
   try {
     const value = JSON.parse(readFileSync(join(home, "config.json"), "utf8"))?.providerDefaults?.[provider];
-    return Object.fromEntries(["model", "effort"].flatMap(key =>
+    return Object.fromEntries(["model", "effort", "mode"].flatMap(key =>
       typeof value?.[key] === "string" && value[key].trim() ? [[key, value[key].trim()]] : []));
   } catch { return {}; }
 }
@@ -14,6 +14,7 @@ export function providerDefaults(home: string | null, provider: ProviderId): Age
 export function applyProviderDefaults(defaults: AgentConfig, selected: AgentConfig = {}): AgentConfig {
   const explicit = Object.fromEntries(Object.entries(selected).filter(([, value]) => value !== "" && value !== undefined));
   // A different model can support different efforts. Do not carry the default effort across it.
-  const inherited = explicit.model && explicit.model !== defaults.model ? {} : defaults;
+  const { effort, ...modelIndependent } = defaults;
+  const inherited = explicit.model && explicit.model !== defaults.model ? modelIndependent : defaults;
   return { ...inherited, ...explicit };
 }

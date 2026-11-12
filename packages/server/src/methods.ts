@@ -188,7 +188,8 @@ export function createHandlers(
     "agent.list": (p) => ({ agents: store.listAgents(p).map((a) => agents.withStatus(a)) }),
     "agent.get": (p) => getAgent(p.id),
     "agent.create": async (p) => {
-      await checkMode(p.provider, p.config?.mode);
+      const config = applyProviderDefaults(providerDefaults(agents.agentPrompt.home, p.provider), p.config);
+      await checkMode(p.provider, config.mode);
       const project = getProject(p.projectId);
       assertProjectPath(project.path);
       const cwd = p.cwd ? agentCwd(project.path, p.cwd) : project.path;
@@ -197,7 +198,7 @@ export function createHandlers(
         name: p.name ?? `${p.provider} · ${basename(cwd)}`,
         provider: p.provider,
         cwd,
-        config: applyProviderDefaults(providerDefaults(agents.agentPrompt.home, p.provider), p.config),
+        config,
         parent: p.parent,
         tags: p.tags,
       });

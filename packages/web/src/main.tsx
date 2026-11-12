@@ -647,7 +647,7 @@ function App() {
           if (!selection.id) {
             setModel(v.defaults?.model ?? "");
             setEffort(v.defaults?.effort ?? "");
-            setMode("");
+            setMode(v.defaults?.mode ?? "");
           }
         }
       })
