@@ -642,13 +642,20 @@ function App() {
     void rpc
       .current!.call("provider.catalog", { provider }, selection.host)
       .then((v) => {
-        if (active) setCatalog(v);
+        if (active) {
+          setCatalog(v);
+          if (!selection.id) {
+            setModel(v.defaults?.model ?? "");
+            setEffort(v.defaults?.effort ?? "");
+            setMode("");
+          }
+        }
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [provider, selection?.host, online]);
+  }, [provider, selection?.host, online, ckey]);
   useEffect(() => {
     if (!online) {
       rowModelsAsked.current.clear();

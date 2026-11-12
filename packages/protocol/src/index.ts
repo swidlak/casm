@@ -364,7 +364,7 @@ export type ModelInfo = z.infer<typeof ModelInfo>;
 export const ModeInfo = z.object({ id: z.string(), name: z.string().optional(), description: z.string().optional() });
 export type ModeInfo = z.infer<typeof ModeInfo>;
 
-export const Catalog = z.object({ models: z.array(ModelInfo), modes: z.array(ModeInfo) });
+export const Catalog = z.object({ models: z.array(ModelInfo), modes: z.array(ModeInfo), defaults: AgentConfig.optional() });
 export type Catalog = z.infer<typeof Catalog>;
 
 

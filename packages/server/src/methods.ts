@@ -15,6 +15,7 @@ import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts"
 import type { PeerPool } from "./peers.ts";
 import type { PushService } from "./push.ts";
 import { DEFAULT_AGENT_PROMPT, PLACEHOLDERS, type AgentPromptState } from "./agent-prompt.ts";
+import { applyProviderDefaults, providerDefaults } from "./provider-defaults.ts";
 
 // `name`: the client token's name (or what started the call, e.g. a schedule).
 export type Conn = { subscriptions: Set<string>; name?: string };
@@ -141,7 +142,7 @@ export function createHandlers(
       ),
     }),
 
-    "provider.catalog": (p) => agents.catalog(p.provider, p.refresh),
+    "provider.catalog": async (p) => ({ ...await agents.catalog(p.provider, p.refresh), defaults: providerDefaults(agents.agentPrompt.home, p.provider) }),
     "provider.limits": async (p) => ({ limits: await agents.limits(p.provider, p.refresh) }),
     "provider.costs": (p) => costs.costs(p.days),
 
@@ -196,7 +197,7 @@ export function createHandlers(
         name: p.name ?? `${p.provider} · ${basename(cwd)}`,
         provider: p.provider,
         cwd,
-        config: p.config ?? {},
+        config: applyProviderDefaults(providerDefaults(agents.agentPrompt.home, p.provider), p.config),
         parent: p.parent,
         tags: p.tags,
       });
