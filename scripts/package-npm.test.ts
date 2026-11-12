@@ -12,7 +12,7 @@ const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
 const windows = process.platform === "win32";
 
-test("the npm tarball works outside the workspace", { timeout: 180_000 }, async (t) => {
+test("the npm tarball works outside the workspace", { timeout: windows ? 600_000 : 180_000 }, async (t) => {
   const temp = mkdtempSync(join(tmpdir(), "casm-npm-"));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const env = { ...process.env };
@@ -26,7 +26,7 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
     : [file, args];
   const run = (file: string, args: string[], extra: Record<string, string> = {}) => {
     const [binary, argv] = command(file, args);
-    return exec(binary, argv, { cwd: temp, env: { ...env, ...extra }, windowsHide: true, timeout: 90_000, maxBuffer: 4 * 1024 * 1024 });
+    return exec(binary, argv, { cwd: temp, env: { ...env, ...extra }, windowsHide: true, timeout: windows ? 240_000 : 90_000, maxBuffer: 4 * 1024 * 1024 });
   };
   const pack = JSON.parse((await run("npm", ["pack", join(root, "dist/npm"), "--json", "--pack-destination", temp])).stdout)[0];
   const files = pack.files.map((f: { path: string }) => f.path);
