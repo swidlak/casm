@@ -937,13 +937,16 @@ function App() {
           <p>Enter a token from this server to connect.</p>
           <input
             aria-label="Server token"
+            name="password"
             type="password"
+            autoComplete="current-password"
             required
             value={entry}
             onChange={(e) => setEntry(e.target.value)}
             autoFocus
           />
           <button>Connect</button>
+          <p>This browser remembers your token. You can also save it as a password in your password manager.</p>
         </form>
       </main>
     );

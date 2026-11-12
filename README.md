@@ -12,8 +12,10 @@ machine and its peers. It does not impose a workflow.
 
 ## Quick start
 
-You need Linux or macOS, Node.js 24+ and at least one coding agent CLI
+You need Linux, macOS or Windows, Node.js 24+ and at least one coding agent CLI
 installed and signed in: `claude`, `codex`, `opencode` or `pi`.
+
+Native Windows support is experimental; see [Windows setup and limitations](docs/windows.md).
 
 1. Install casm and start the server:
 

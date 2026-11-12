@@ -5,7 +5,9 @@ import { toolImages, viewedImage } from "./tool-images.ts";
 // Codex via `codex app-server`: JSON-RPC over stdio, one process per open
 // session. The native session id is the thread id; history comes from
 // `thread/items/list`, with `thread/read` for stores without item pagination.
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import spawn from "cross-spawn";
+import { stopProcess } from "../platform.ts";
 import { createInterface } from "node:readline";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
@@ -487,7 +489,7 @@ class Rpc {
 
   constructor(cwd: string, env: Record<string, string>) {
     const bin = process.env.CASM_CODEX_PATH ?? "codex";
-    this.child = spawn(bin, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    this.child = spawn(bin, ["app-server"], { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
     this.child.stderr.on("data", (d: Buffer) => (this.stderr = (this.stderr + d.toString()).slice(-2000)));
     createInterface({ input: this.child.stdout }).on("line", (line) => this.handle(line));
     let exited = false;
@@ -549,7 +551,7 @@ class Rpc {
   }
 
   kill() {
-    if (this.child.exitCode === null) this.child.kill();
+    if (this.child.exitCode === null) stopProcess(this.child);
   }
 }
 

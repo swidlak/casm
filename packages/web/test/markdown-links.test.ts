@@ -2,14 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { rolldown } from "rolldown";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 test("markdown anchors isolate external tabs and preserve app/file navigation", async () => {
   const dir = await mkdtemp(fileURLToPath(new URL(".link-render-", import.meta.url)));
-  const bundle = await rolldown({ input: fileURLToPath(new URL("../src/file-links.tsx", import.meta.url)), external: id => !id.startsWith(".") && !id.startsWith("/"), transform: { jsx: "react-jsx" } });
+  const bundle = await rolldown({ input: fileURLToPath(new URL("../src/file-links.tsx", import.meta.url)), external: id => !id.startsWith(".") && !isAbsolute(id), transform: { jsx: "react-jsx" } });
   const previous = Object.getOwnPropertyDescriptor(globalThis, "location");
   Object.defineProperty(globalThis, "location", { value: new URL("https://casm.example/h/local"), configurable: true });
   try {
@@ -35,7 +35,7 @@ test("markdown anchors isolate external tabs and preserve app/file navigation", 
 
 test("file references: a line suffix is parsed, real colons in names are kept", async () => {
   const dir = await mkdtemp(fileURLToPath(new URL(".link-render-", import.meta.url)));
-  const bundle = await rolldown({ input: fileURLToPath(new URL("../src/file-links.tsx", import.meta.url)), external: id => !id.startsWith(".") && !id.startsWith("/"), transform: { jsx: "react-jsx" } });
+  const bundle = await rolldown({ input: fileURLToPath(new URL("../src/file-links.tsx", import.meta.url)), external: id => !id.startsWith(".") && !isAbsolute(id), transform: { jsx: "react-jsx" } });
   try {
     const file = join(dir, "links.mjs");
     await bundle.write({ file, format: "esm", codeSplitting: false });
@@ -51,6 +51,8 @@ test("file references: a line suffix is parsed, real colons in names are kept", 
     assert.deepEqual(found("/p/a.ts:12abc and /p/x:y"), ["/p/a.ts", "/p/x"]);
     assert.deepEqual(found("/other/a.ts:12"), []);
     assert.equal(pathFromHref(fileHref("/p/a.ts#L7")), "/p/a.ts#L7");
+    assert.deepEqual(findPaths("Read C:\\Project\\file.ts:12 then C:/Project/other.ts#L4", ["c:\\project"]).map(f => f.path), ["C:\\Project\\file.ts:12", "C:/Project/other.ts#L4"]);
+    assert.deepEqual(findPaths("Read \\\\server\\share\\file.txt", ["\\\\server\\share"]).map(f => f.path), ["\\\\server\\share\\file.txt"]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
