@@ -96,11 +96,14 @@ export function remarkFilePaths({ roots }: { roots: string[] }) {
     return nodes;
   };
   const walk = (node: MdNode) => {
+    if (node.type === "link" && node.url && windowsAbsolute(node.url) && insideRoot(splitLine(node.url).path, roots)) node.url = fileHref(node.url);
     if (!node.children || node.type === "link" || node.type === "linkReference") return;
     node.children = node.children.flatMap((child) => {
       if (child.type === "text") return split(child.value ?? "");
       if (child.type === "inlineCode") {
         const value = (child.value ?? "").trim();
+        if ((windowsAbsolute(value) || value.startsWith("/")) && !/[\r\n]/.test(value) && insideRoot(splitLine(value).path, roots))
+          return [{ type: "link", url: fileHref(value), children: [child] }];
         const [first] = findPaths(value, roots);
         if (first?.index === 0 && /^\/?$/.test(value.slice(first.path.length)))
           return [{ type: "link", url: fileHref(first.path), children: [child] }];

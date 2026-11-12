@@ -126,6 +126,21 @@ test("fs.read: text, mime, truncation, binary and directories", async () => {
   assert.deepEqual([dir.type, dir.content, dir.binary], ["dir", null, false]);
 });
 
+test("fs.list browses one project directory and refuses traversal, junction escapes and server state", async () => {
+  const listing = await alpha.client.call("fs.list", { path: project });
+  assert.equal(listing.truncated, false);
+  assert.ok(listing.entries.some(entry => entry.name === "sub" && entry.kind === "dir"));
+  assert.ok(listing.entries.some(entry => entry.path === join(project, "data.json") && entry.kind === "file"));
+  assert.ok(!listing.entries.some(entry => entry.name === "deeper"));
+  await refused(alpha.client.call("fs.list", { path: outside }), ErrorCode.InvalidParams, /not inside/);
+  await refused(alpha.client.call("fs.list", { path: join(project, "..", "outside") }), ErrorCode.InvalidParams, /not inside/);
+  if (process.platform === "win32") await refused(alpha.client.call("fs.list", { path: join(project, "escape") }), ErrorCode.InvalidParams, /outside every project/);
+  await refused(alpha.client.call("fs.list", { path: join(project, "data.json") }), ErrorCode.InvalidParams, /not a directory/);
+  const stateProject = await alpha.client.call("project.create", { path: alpha.home, name: "state-list" });
+  try { await refused(alpha.client.call("fs.list", { path: alpha.home }), ErrorCode.InvalidParams, /state directory/); }
+  finally { await alpha.client.call("project.delete", { id: stateProject.id }); }
+});
+
 test("download links stream the file as an attachment with safe headers", async () => {
   const link = await alpha.client.call("fs.downloadLink", { path: join(project, "sub", "zażółć plik.txt") });
   assert.match(link.url, /^\/dl\/[\w-]+\.[\w-]+\/za%C5%BC%C3%B3%C5%82%C4%87%20plik\.txt$/);

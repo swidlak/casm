@@ -39,7 +39,7 @@ test("file references: a line suffix is parsed, real colons in names are kept", 
   try {
     const file = join(dir, "links.mjs");
     await bundle.write({ file, format: "esm", codeSplitting: false });
-    const { splitLine, findPaths, pathFromHref, fileHref } = await import(pathToFileURL(file).href);
+    const { splitLine, findPaths, pathFromHref, fileHref, remarkFilePaths } = await import(pathToFileURL(file).href);
     assert.deepEqual(splitLine("/p/a.ts:123"), { path: "/p/a.ts", line: 123 });
     assert.deepEqual(splitLine("/p/a.ts:123:45"), { path: "/p/a.ts", line: 123 });
     assert.deepEqual(splitLine("/p/a.ts#L7"), { path: "/p/a.ts", line: 7 });
@@ -53,6 +53,12 @@ test("file references: a line suffix is parsed, real colons in names are kept", 
     assert.equal(pathFromHref(fileHref("/p/a.ts#L7")), "/p/a.ts#L7");
     assert.deepEqual(findPaths("Read C:\\Project\\file.ts:12 then C:/Project/other.ts#L4", ["c:\\project"]).map(f => f.path), ["C:\\Project\\file.ts:12", "C:/Project/other.ts#L4"]);
     assert.deepEqual(findPaths("Read \\\\server\\share\\file.txt", ["\\\\server\\share"]).map(f => f.path), ["\\\\server\\share\\file.txt"]);
+    const path = "C:/My Projects/report one.html";
+    const tree = { type: "root", children: [{ type: "inlineCode", value: path }, { type: "link", url: path, children: [{ type: "text", value: "report" }] }] };
+    remarkFilePaths({ roots: ["C:/My Projects"] })(tree);
+    assert.equal(tree.children[0].type, "link");
+    assert.equal(tree.children[0].url, fileHref(path));
+    assert.equal(tree.children[1].url, fileHref(path));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

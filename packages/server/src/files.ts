@@ -5,7 +5,7 @@
 // peer's own link, so the download streams through this server.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { open, realpath, stat } from "node:fs/promises";
+import { open, realpath, stat, readdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -131,6 +131,17 @@ export class Files {
     if (!match) throw new RpcError(ErrorCode.InvalidParams, `${path} resolves to ${real}, outside every project folder on this host`);
     if (this.home && inside(this.home, real)) throw new RpcError(ErrorCode.InvalidParams, `${path} is in casm's state directory, which is never shared`);
     return { real, project: match.project, root: match.real };
+  }
+
+  async list(p: { path: string }): Promise<Result<"fs.list">> {
+    const { real } = await this.resolve(p.path);
+    if (!(await stat(real)).isDirectory()) throw new RpcError(ErrorCode.InvalidParams, "not a directory");
+    const all = await readdir(real, { withFileTypes: true });
+    all.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+    return { path: resolve(p.path), truncated: all.length > 1000, entries: all.slice(0, 1000).map(entry => ({
+      name: entry.name, path: join(resolve(p.path), entry.name),
+      kind: entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other",
+    })) };
   }
 
   async read(p: { path: string; maxBytes?: number }): Promise<FileContent> {

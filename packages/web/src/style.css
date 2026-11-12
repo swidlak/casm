@@ -59,6 +59,13 @@
   color: var(--text);
   background: var(--bg);
 }
+
+.file-directory { display: grid; gap: 12px; width: 100%; min-width: 0; }
+.file-directory > input { width: 100%; box-sizing: border-box; }
+.file-directory ul { list-style: none; margin: 0; padding: 0; }
+.file-directory li + li { border-top: 1px solid var(--line); }
+.file-directory li button { display: block; width: 100%; min-height: 44px; padding: 10px 12px; text-align: left; overflow-wrap: anywhere; white-space: normal; border: 0; border-radius: 0; background: transparent; color: var(--text); }
+.file-directory li button:hover { background: var(--raised); }
 * {
   box-sizing: border-box;
 }
