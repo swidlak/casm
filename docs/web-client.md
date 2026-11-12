@@ -15,9 +15,11 @@ real UI with made-up projects.
 ## Conversation and work details
 
 By default, consecutive tool calls, thinking and subagent activity share one
-collapsed **Work details** row. Messages, progress updates, plans and notices
-stay visible in order. The summary shows the activity count, running tools
-and failed activity count. Expand the group, then any tool, to inspect its input
+collapsed **Work details** row. Messages, progress updates, plans and actionable notices
+stay visible in order. Routine successful approval-review notices from older
+Codex sessions also join the group; review denials, timeouts, unknown outcomes
+and unrelated warnings stay visible. The summary shows the activity count,
+running tools and failed activity count. Expand the group, then any tool, to inspect its input
 and output. Find in chat opens the group and the matching row automatically.
 
 Under **This device > Work details in chat**, choose **Individual** to show
