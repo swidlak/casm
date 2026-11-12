@@ -14,7 +14,16 @@ async function stop(child: ReturnType<typeof spawn>) {
   clearTimeout(killer);
 }
 
-export const test = base.extend<{ server: void; scenario: string }>({
+export const test = base.extend<{ server: void; scenario: string; workView: "compact" | "detailed" }>({
+  // Existing tool/layout scenarios exercise the individual view. The compact
+  // suite leaves storage untouched to exercise the actual first-run default.
+  workView: ["detailed", { option: true }],
+  page: async ({ page, workView }, use) => {
+    if (workView === "detailed") await page.addInitScript(() => {
+      if (!localStorage.getItem("casm.work-view")) localStorage.setItem("casm.work-view", "detailed");
+    });
+    await use(page);
+  },
   baseURL: async ({}, use) => use(testURL),
   // "memory": the heavy workspace of memory-fixture.ts besides the usual one.
   scenario: ["", { option: true }],

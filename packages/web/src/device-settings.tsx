@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { chatMemoryChoices, type ChatMemory } from "./chat-memory";
+import type { WorkView } from "./work-details";
+type Props = { memory: ChatMemory; change: (value: ChatMemory) => void; workView: WorkView; changeWorkView: (value: WorkView) => void };
 
 function DeviceGlyph() {
   return <svg className="exit-glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -9,7 +11,7 @@ function DeviceGlyph() {
 }
 
 /** The sidebar footer's settings for this browser only (stored in localStorage). */
-export function DeviceSettings({ memory, change }: { memory: ChatMemory; change: (value: ChatMemory) => void }) {
+export function DeviceSettings({ memory, change, workView, changeWorkView }: Props) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   return <>
@@ -17,11 +19,11 @@ export function DeviceSettings({ memory, change }: { memory: ChatMemory; change:
       aria-label="This device" title="Settings for this device" onClick={() => setOpen(true)}>
       <DeviceGlyph />
     </button>
-    {open && <DeviceDialog memory={memory} change={change} close={() => { setOpen(false); trigger.current?.focus(); }} />}
+    {open && <DeviceDialog memory={memory} change={change} workView={workView} changeWorkView={changeWorkView} close={() => { setOpen(false); trigger.current?.focus(); }} />}
   </>;
 }
 
-function DeviceDialog({ memory, change, close }: { memory: ChatMemory; change: (value: ChatMemory) => void; close: () => void }) {
+function DeviceDialog({ memory, change, workView, changeWorkView, close }: Props & { close: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
   const done = useRef<HTMLButtonElement>(null);
@@ -29,6 +31,13 @@ function DeviceDialog({ memory, change, close }: { memory: ChatMemory; change: (
   useEffect(() => { dialog.current?.showModal(); done.current?.focus(); }, []);
   return createPortal(<dialog ref={dialog} className="confirm-dialog device-dialog" aria-labelledby={title} onClose={close}>
     <h2 id={title}>This device</h2>
+    <fieldset>
+      <legend>Work details in chat</legend>
+      <label><input type="radio" name="work-view" checked={workView === "compact"} onChange={() => changeWorkView("compact")} />
+        <span><strong>Grouped</strong><small>Keep the conversation in focus. Expand work details when needed.</small></span></label>
+      <label><input type="radio" name="work-view" checked={workView === "detailed"} onChange={() => changeWorkView("detailed")} />
+        <span><strong>Individual</strong><small>Show each tool, thinking and subagent row in the conversation.</small></span></label>
+    </fieldset>
     <fieldset>
       <legend>Keep chats in memory</legend>
       {chatMemoryChoices.map((c) => <label key={c.value}>

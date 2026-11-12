@@ -12,6 +12,18 @@ The screenshots on this page come from a demo server with fake providers
 ([`scripts/docs-media`](../scripts/docs-media/README.md)), so they show the
 real UI with made-up projects.
 
+## Conversation and work details
+
+By default, consecutive tool calls, thinking and subagent activity share one
+collapsed **Work details** row. Messages, progress updates, plans and notices
+stay visible in order. The summary shows the activity count, running tools
+and failed activity count. Expand the group, then any tool, to inspect its input
+and output. Find in chat opens the group and the matching row automatically.
+
+Under **This device > Work details in chat**, choose **Individual** to show
+each technical row separately. The preference is stored in this browser,
+including the installed PWA; other devices keep their own preference.
+
 ## Connecting
 
 1. On the server: `casm token create web` prints a token.
