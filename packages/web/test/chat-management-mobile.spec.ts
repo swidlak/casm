@@ -12,12 +12,13 @@ async function login(page: import("@playwright/test").Page, width: number) {
   if (width === 375) await openAgents(page);
 }
 for (const width of [1440, 375]) {
-  test(`mobile recent chats and explicit new activity survive reload and offline completion at ${width}`, async ({ page }) => {
+  test(`mobile recent chats and unread message dots survive reload and offline replies at ${width}`, async ({ page }) => {
     const tails = new Map<string, Item>();
     const ids = new Map<string, string>();
     const statuses = new Map<string, Agent["status"]>();
     const dates = new Map<string, string>();
     let notify: (name: string, status: Agent["status"]) => void;
+    let deliver: (name: string, item: Item) => void;
     await page.routeWebSocket("**", socket => {
       const server = socket.connectToServer();
       const requests = new Map<number, { method: string; params: { id?: string; limit?: number } }>();
@@ -40,21 +41,41 @@ for (const width of [1440, 375]) {
         socket.send(JSON.stringify(response));
       });
       notify = (name, status) => { const agentId = ids.get(name)!; statuses.set(agentId, status); socket.send(JSON.stringify({ jsonrpc: "2.0", method: "agent.status", params: { agentId, status } })); };
+      deliver = (name, item) => {
+        const agentId = ids.get(name)!; tails.set(agentId, item);
+        socket.send(JSON.stringify({ jsonrpc: "2.0", method: "agent.event", params: { agentId, event: { type: "item", item } } }));
+      };
     });
     await login(page, width);
     const rows = page.locator("nav .agent");
     await expect(rows.first()).toContainText("Agent 03");
-    await expect(rows.filter({ hasText: "Agent 01" })).toContainText("Needs you");
-    await expect(rows.filter({ hasText: "Agent 02" })).toContainText("Failed");
-    await expect(rows.first()).toContainText("Working");
+    await expect(rows.filter({ hasText: "Agent 01" }).locator(".dot")).toHaveClass(/waiting/);
+    await expect(rows.filter({ hasText: "Agent 02" }).locator(".dot")).toHaveClass(/failed/);
+    await expect(rows.first().locator(".dot")).toHaveClass(/running/);
+    await expect(page.locator(".agent-state-line")).toHaveCount(0);
     await expect(page.locator(".unread-label")).toHaveCount(0);
+    // Establish a read-message baseline for Agent 00, then leave it in the background.
+    await rows.filter({ hasText: "Agent 00" }).click();
+    await expect(page.locator(".item").last()).toBeVisible();
+    if (width === 375) await openAgents(page);
     await rows.filter({ hasText: "Agent 03" }).click();
     await expect(page.locator(".item").last()).toBeVisible();
+    notify!("Agent 00", "running"); notify!("Agent 00", "idle");
+    await expect(rows.filter({ hasText: "Agent 00" }).locator(".dot")).not.toHaveClass(/unread/);
     tails.set(ids.get("Agent 00")!, { kind: "assistant", id: "background-reply", text: "Background result ready.", at: new Date().toISOString() });
     notify!("Agent 00", "running"); notify!("Agent 00", "idle");
     if (width === 375) await openAgents(page);
     const unread = rows.filter({ hasText: "Agent 00" });
-    await expect(unread).toContainText("New activity");
+    await expect(unread.locator(".dot")).toHaveClass(/unread/);
+    await expect(unread.locator(".agent-name")).toHaveCSS("font-weight", "500");
+    expect(await unread.locator(".agent-summary").evaluate(el => el.children.length)).toBe(2);
+    notify!("Agent 00", "running");
+    await expect(unread.locator(".dot")).toHaveClass(/unread/);
+    notify!("Agent 00", "waiting");
+    await expect(unread.locator(".dot")).toHaveClass(/waiting/);
+    await expect(unread.locator(".dot")).not.toHaveClass(/unread/);
+    notify!("Agent 00", "idle");
+    await expect(unread.locator(".dot")).toHaveClass(/unread/);
     await expect(rows.first()).toContainText("Agent 00");
     const attention = page.getByRole("button", { name: /Needs attention/ });
     await expect(attention).toHaveText("Needs attention (3)");
@@ -66,10 +87,10 @@ for (const width of [1440, 375]) {
     await page.waitForTimeout(300);
     await page.reload();
     if (width === 375) await openAgents(page);
-    await expect(rows.filter({ hasText: "Agent 00" })).toContainText("New activity");
+    await expect(rows.filter({ hasText: "Agent 00" }).locator(".dot")).toHaveClass(/unread/);
     await rows.filter({ hasText: "Agent 00" }).click();
     await expect(page.getByText("Background result ready.", { exact: true })).toBeVisible();
-    await expect(rows.filter({ hasText: "Agent 00" }).locator(".unread-label")).toHaveCount(0);
+    await expect(rows.filter({ hasText: "Agent 00" }).locator(".dot")).not.toHaveClass(/unread/);
     if (width === 375) await openAgents(page);
     await rows.filter({ hasText: "Agent 03" }).click();
     await page.waitForTimeout(300);
@@ -77,9 +98,21 @@ for (const width of [1440, 375]) {
     tails.set(ids.get("Agent 00")!, { kind: "assistant", id: "offline-reply", text: "Completed while the app was closed.", at: new Date().toISOString() });
     await page.reload();
     if (width === 375) await openAgents(page);
-    await expect(rows.filter({ hasText: "Agent 00" })).toContainText("New activity");
+    await expect(rows.filter({ hasText: "Agent 00" }).locator(".dot")).toHaveClass(/unread/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     await page.screenshot({ path: test.info().outputPath(`chat-activity-${width}.png`) });
+    await rows.filter({ hasText: "Agent 00" }).click();
+    await expect(page.getByText("Completed while the app was closed.", { exact: true })).toBeVisible();
+    const scroller = page.locator("[data-virtuoso-scroller]");
+    if (test.info().project.use.hasTouch) {
+      await scroller.dispatchEvent("touchmove"); await scroller.evaluate(el => el.scrollBy(0, -600));
+    } else { await scroller.hover(); await page.mouse.wheel(0, -600); }
+    await expect(page.getByRole("button", { name: /Latest/ })).toBeVisible();
+    deliver!("Agent 00", { kind: "assistant", id: "new-while-reading-history", text: "A newer message while you read history.", at: new Date().toISOString() });
+    await expect(rows.filter({ hasText: "Agent 00" }).locator(".dot")).toHaveClass(/unread/);
+    await page.getByRole("button", { name: /Latest/ }).click();
+    await expect(page.getByText("A newer message while you read history.", { exact: true })).toBeVisible();
+    await expect(rows.filter({ hasText: "Agent 00" }).locator(".dot")).not.toHaveClass(/unread/);
   });
 
   test(`mobile chats can be archived, restored and explicitly removed at ${width}`, async ({ page }) => {

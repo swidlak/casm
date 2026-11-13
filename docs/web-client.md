@@ -29,18 +29,19 @@ including the installed PWA; other devices keep their own preference.
 ## Finding and organizing chats
 
 Within a project, chats are ordered by recent activity. A parent's block moves
-up when one of its nested agents has newer activity. Each row spells out its
-state next to the existing dot: Working, Needs you, Failed, Idle or a queue/limit
-state. The chat header spells out its state too; color alone is not required.
-**Needs attention** filters the list to waiting/failed chats or unread activity,
-with a count across projects. Toggle it off to return to all recent chats.
+up when one of its nested agents has newer activity. Chat rows keep two lines:
+name and model metadata. The dot carries the state, with an accessible label and
+tooltip: blue/teal for working, green for an unread assistant message, red/coral
+for a waiting decision or failure. Red has priority over unread green; unread
+green has priority over working blue. There is no extra status-text line.
 
-**New activity** is separate from execution status. It records changes not yet
-viewed at the live end on this browser/PWA, and survives reload. On reconnect or
-resume, the client compares the latest item of previously visited chats (two
-reads at a time); a finished turn can be noticed even while the PWA was closed.
-Existing history establishes a baseline instead of marking every old chat new.
-Read markers belong to this browser, so a phone and desktop can differ.
+Unread means a new assistant message, not a tool event, own prompt, changed
+configuration or changed execution status. It clears after viewing the live
+end. On reconnect/resume, the client locates the latest assistant reply in
+previously visited idle chats, so technical logs after a reply do not hide it.
+Markers survive reload and belong to this browser/PWA. Existing history forms
+a baseline, and legacy generic-activity flags are cleared during migration.
+**Needs attention** filters to waiting/failed chats or unread replies.
 
 Open a chat's **Chat options** button in its header and choose **Archive chat**,
 then confirm. Archiving hides it on all devices and stops that agent, keeping
