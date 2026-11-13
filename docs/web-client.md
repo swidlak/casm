@@ -26,6 +26,28 @@ Under **This device > Work details in chat**, choose **Individual** to show
 each technical row separately. The preference is stored in this browser,
 including the installed PWA; other devices keep their own preference.
 
+## Finding and organizing chats
+
+Within a project, chats are ordered by recent activity. A parent's block moves
+up when one of its nested agents has newer activity. Each row spells out its
+state next to the existing dot: Working, Needs you, Failed, Idle or a queue/limit
+state. The chat header spells out its state too; color alone is not required.
+**Needs attention** filters the list to waiting/failed chats or unread activity,
+with a count across projects. Toggle it off to return to all recent chats.
+
+**New activity** is separate from execution status. It records changes not yet
+viewed at the live end on this browser/PWA, and survives reload. On reconnect or
+resume, the client compares the latest item of previously visited chats (two
+reads at a time); a finished turn can be noticed even while the PWA was closed.
+Existing history establishes a baseline instead of marking every old chat new.
+Read markers belong to this browser, so a phone and desktop can differ.
+
+Open a chat's **Chat options** button in its header and choose **Archive chat**,
+then confirm. Archiving hides it on all devices and stops that agent, keeping
+its history. Under **Project options > Archived chats**, restore it or choose
+**Delete from CASM...**. Deletion requires typing the chat name. This removes the
+CASM entry; the provider's native transcript files are kept.
+
 ## Connecting
 
 1. On the server: `casm token create web` prints a token.

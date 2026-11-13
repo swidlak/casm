@@ -44,7 +44,7 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
     const header = page.locator(".chat > header");
     await expect(header.locator(".dot")).toHaveAttribute("aria-label", "Working");
     await expect(header.locator(".activity-spinner")).toHaveCount(0);
-    expect(await header.innerText()).not.toContain("Working");
+    expect(await header.innerText()).toContain("Working");
     if (width === 375) await openAgents(page);
     // Status dots line up under the project's ⋯, the sidebar's right-hand column.
     const menuBox = (await page.getByRole("button", { name: "Project options for Test project", exact: true }).boundingBox())!;
@@ -53,7 +53,7 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
       const agent = row(i);
       await expect(agent.locator(".dot")).toHaveCount(1);
       await expect(agent.locator(".activity-spinner")).toHaveCount(0);
-      expect(await agent.innerText()).not.toMatch(/Working|Idle|Needs you/);
+      await expect(agent.locator(".agent-state-line")).toContainText(["Working", "Needs you", "Queue needs retry", "Idle", "Rate limited", "Working", "Idle", "Idle"][i]);
       const dot = (await agent.locator(".dot").boundingBox())!;
       expect(Math.abs(dot.x + dot.width / 2 - menuBox.x - menuBox.width / 2)).toBeLessThanOrEqual(1.5);
       const box = (await agent.boundingBox())!;
