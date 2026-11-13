@@ -43,7 +43,7 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   await expect(context.locator(".settings-context-item")).toHaveCount(1);
   await context.getByRole("button", { name: "Copy project path" }).click();
   await expect(context.getByRole("button", { name: "Copy project path" })).toHaveText("Copied");
-  await expect(panel.getByRole("button", { name: "Files", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Files", exact: true })).toHaveCount(1);
   await expect(panel.getByRole("heading", { name: "Project rules" })).toBeVisible();
   await panel.getByRole("button", { name: "Edit instructions", exact: true }).click();
   const editor = panel.getByRole("textbox", { name: "Project instructions", exact: true });
