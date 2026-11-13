@@ -43,7 +43,7 @@ import { waitingAgents } from "./attention";
 import { agentHierarchy } from "./agent-hierarchy";
 import { agentStatus } from "./agent-activity";
 import { ChatOptions } from "./chat-options";
-import { readSignals, saveSignals, signalKey, observeSignal, liveSignal, sampleSignal, tailSignature, type ChatSignals } from "./chat-signals";
+import { readSignals, saveSignals, signalKey, observeSignal, liveSignal, sampleSignal, type ChatSignals } from "./chat-signals";
 import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
 import { ViewportDebug } from "./viewport-debug";
@@ -80,7 +80,7 @@ const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, 
       style={{ "--agent-depth": depth } as React.CSSProperties}
       onClick={() => onChoose({ host, project: agent.projectId, id: agent.id })}
     >
-      <AgentSummary agent={agent} status={status} online={online} models={models} showStatus unread={unread} />
+      <AgentSummary agent={agent} status={status} online={online} models={models} unread={unread} />
     </button>
   );
 });
@@ -225,6 +225,17 @@ function App() {
   const rowNotes = useRef(new Map<string, string>()).current;
   const [sidebar, showSidebar] = useState(false);
   const [attentionOnly, setAttentionOnly] = useState(false);
+  const sidebarRef = useRef(sidebar);
+  sidebarRef.current = sidebar;
+  function isReading(host: string, id: string) {
+    const view = selected.current;
+    const conversation = chats.get(key(host, id));
+    const scroller = document.querySelector<HTMLElement>(".transcript [data-virtuoso-scroller]");
+    const atEnd = !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;
+    return atEnd && document.visibilityState === "visible" && document.hasFocus() && !sidebarRef.current
+      && view?.host === host && view?.id === id && !!conversation?.loaded
+      && conversation.atBottom !== false && !conversation.window;
+  }
   const [signals, setSignals] = useState<ChatSignals>(() => readSignals(localStorage));
   const knownVisits = useMemo(() => readRecent(localStorage), []);
   const signalsRef = useRef(signals);
@@ -232,7 +243,6 @@ function App() {
   const tailReads = useRef(new Map<string, symbol>()).current;
   const tailRuns = useRef(new Map<string, Rpc>()).current;
   const [pageVisible, setPageVisible] = useState(document.visibilityState === "visible" && document.hasFocus());
-  const readingRef = useRef(false);
   useEffect(() => {
     const changed = () => setPageVisible(document.visibilityState === "visible" && document.hasFocus());
     document.addEventListener("visibilitychange", changed);
@@ -327,9 +337,8 @@ function App() {
       if (h && a) {
         const marker = signalKey(h.serverId ?? h.id, id);
         tailReads.delete(marker);
-        const chosen = selected.current;
-        const reading = document.visibilityState === "visible" && document.hasFocus() && chosen?.host === host && chosen?.id === id && c.atBottom !== false && !c.window;
-        setSignals(old => ({ ...old, [marker]: sampleSignal(old[marker], a, c.items.at(-1), reading) }));
+        const reading = isReading(host, id);
+        setSignals(old => ({ ...old, [marker]: sampleSignal(old[marker], a, c.items.findLast(item => item.kind === "assistant" && !!item.text.trim()), reading) }));
       }
       persistChat(key(host, id), 0);
     } finally {
@@ -360,11 +369,17 @@ function App() {
     const id = signalKey(h.serverId ?? h.id, a.id);
     const request = Symbol(); tailReads.set(id, request);
     try {
-      const result = await r.call("agent.history", { id: a.id, limit: 1 }, h.id);
-      if (rpc.current !== r || tailReads.get(id) !== request) return;
-      const chosen = selected.current;
-      const reading = readingRef.current && chosen?.host === h.id && chosen?.id === a.id;
-      setSignals(old => ({ ...old, [id]: sampleSignal(old[id], a, result.items.at(-1), reading) }));
+      let before: number | undefined;
+      let reply: Item | undefined;
+      do {
+        const result = await r.call("agent.history", { id: a.id, limit: 40, ...(before !== undefined ? { before } : {}) }, h.id);
+        if (rpc.current !== r || tailReads.get(id) !== request) return;
+        reply = result.items.findLast(item => item.kind === "assistant" && !!item.text.trim());
+        if (reply || result.start === 0 || result.start === before) break;
+        before = result.start;
+      } while (r.open);
+      const reading = isReading(h.id, a.id);
+      setSignals(old => ({ ...old, [id]: sampleSignal(old[id], a, reply, reading) }));
     } catch { /* Offline or inaccessible history never clears an unread marker. */ }
     finally { if (tailReads.get(id) === request) tailReads.delete(id); }
   }
@@ -457,13 +472,12 @@ function App() {
         const k = key(host, p?.agentId ?? p?.agent?.id ?? "");
         if (n.method === "agent.event") {
           const a = hostsRef.current.find(h => h.id === host)?.agents.find(a => a.id === p.agentId);
-          if (a && (p.event.type === "item" && (p.event.item.kind === "assistant" || p.event.item.kind === "user") || p.event.type === "permission" || p.event.type === "question")) {
+          if (a && p.event.type === "item" && (p.event.item.kind === "assistant" || p.event.item.kind === "user")) {
             const h = hostsRef.current.find(h => h.id === host)!;
             const id = signalKey(h.serverId ?? host, a.id);
             tailReads.delete(id);
-            const chosen = selected.current;
-            const reading = readingRef.current && chosen?.host === host && chosen?.id === a.id;
-            setSignals(old => ({ ...old, [id]: { ...liveSignal(old[id], a, reading), ...(p.event.type === "item" ? { tail: tailSignature(p.event.item) } : {}) } }));
+            const reading = isReading(host, a.id);
+            setSignals(old => ({ ...old, [id]: liveSignal(old[id], a, reading, Date.now(), p.event.item) }));
           }
           if (buffers.has(k)) buffers.get(k)!.push(p.event);
           else {
@@ -473,15 +487,13 @@ function App() {
           redraw();
         }
         if (n.method === "agent.status" || n.method === "agent.changed") {
-          // Record each status event before React batches several transitions.
-          // A quick running -> idle turn must still create a new-activity marker.
+          // Status changes update recency, but never mark a message unread.
           if (n.method === "agent.status") {
             const h = hostsRef.current.find(h => h.id === host);
             const a = h?.agents.find(a => a.id === p.agentId);
             if (h && a) {
               const id = signalKey(h.serverId ?? h.id, a.id);
-              const chosen = selected.current;
-              const reading = readingRef.current && chosen?.host === host && chosen?.id === a.id;
+              const reading = isReading(host, a.id);
               setSignals(old => {
                 const value = observeSignal(old[id], { ...a, status: p.status }, reading);
                 return value === old[id] ? old : { ...old, [id]: value };
@@ -606,14 +618,13 @@ function App() {
     ? key(selection.host, selection.id ?? `new:${selection.project}`)
     : "";
   const c = chat(ckey);
-  readingRef.current = pageVisible && !sidebar && !!selection?.id && c.loaded && c.atBottom !== false && !c.window;
   useEffect(() => {
     setSignals(old => {
       let next = old;
       for (const h of hosts) for (const a of h.agents) {
         if (h.loading || h.error || a.archivedAt) continue;
         const id = signalKey(h.serverId ?? h.id, a.id);
-        const reading = readingRef.current && selection?.host === h.id && selection.id === a.id;
+        const reading = isReading(h.id, a.id);
         const value = observeSignal(old[id], a, reading);
         if (value !== old[id]) { if (next === old) next = { ...old }; next[id] = value; }
       }
@@ -628,9 +639,11 @@ function App() {
   };
   const attentionCount = hosts.reduce((total, h) => total + h.agents.filter(a => !a.archivedAt && needsAttention(h, a)).length, 0);
   const markCurrentRead = () => {
-    if (!host || !agent || !pageVisible || sidebar || !c.loaded || c.window) return;
+    if (!host || !agent) return;
     const id = signalKey(host.serverId ?? host.id, agent.id);
-    setSignals(old => old[id]?.unread ? { ...old, [id]: { ...old[id], unread: false } } : old);
+    requestAnimationFrame(() => {
+      if (isReading(host.id, agent.id)) setSignals(old => old[id]?.unread ? { ...old, [id]: { ...old[id], unread: false } } : old);
+    });
   };
   const finding = find?.key === ckey && !!selection?.id ? find : undefined;
   const openFind = () => {
@@ -1213,7 +1226,7 @@ function App() {
             </strong>
             <small className="chat-model" title={agent ? sessionModel.sessionTitle : undefined}>
               {agent
-                ? <><ProviderIcon provider={agent.provider} /> <span className="chat-model-label">{sessionModel.sessionLabel}</span> <AgentActivity agent={agent} status={agent.status === "idle" && (c.failed || c.pending.some(p => p.reason === "failed")) ? "failed" : agent.status} online={online} announce /><span className="chat-status-text">{agentStatus(agent, agent.status === "idle" && c.failed ? "failed" : agent.status, online).label}</span></>
+                ? <><ProviderIcon provider={agent.provider} /> <span className="chat-model-label">{sessionModel.sessionLabel}</span> <AgentActivity agent={agent} status={agent.status === "idle" && (c.failed || c.pending.some(p => p.reason === "failed")) ? "failed" : agent.status} online={online} unread={!!signals[signalKey(host!.serverId ?? host!.id, agent.id)]?.unread} announce /></>
                 : project
                   ? "New agent"
                   : "Choose a project to start a conversation"}

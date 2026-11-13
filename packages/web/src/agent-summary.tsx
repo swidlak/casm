@@ -1,15 +1,14 @@
 import type { Agent, ModelInfo } from "@casm/protocol";
 import { ProviderIcon, providerNames } from "./provider-icon";
 import { AgentActivity } from "./agent-activity-view";
-import { agentStatus } from "./agent-activity";
 import { modelLabels } from "./model-label";
+import { agentStatus } from "./agent-activity";
 
-export function AgentSummary({ agent, status, models = [], online = true, showStatus = false, unread = false }: { agent: Agent; status: string; models?: ModelInfo[]; online?: boolean; showStatus?: boolean; unread?: boolean }) {
+export function AgentSummary({ agent, status, models = [], online = true, unread = false }: { agent: Agent; status: string; models?: ModelInfo[]; online?: boolean; unread?: boolean }) {
   const model = modelLabels(agent.config.model, agent.effectiveModel, models);
   // No reported identity: configured model is a selection, never a session claim.
   const label = model.actual ?? (agent.config.model ? `${model.selectedLabel} (selected)` : model.sessionLabel);
   const counts = [agent.subagents?.running ? `${agent.subagents.running} sub` : "", agent.pending?.count ? `${agent.pending.count} queued` : ""].filter(Boolean).join(" · ");
-  const indicator = agentStatus(agent, status, online);
   const detail = [providerNames[agent.provider], label, counts, model.sessionTitle, agentStatus(agent, status, online).detail].filter(Boolean).join(" · ");
   return <>
     <ProviderIcon provider={agent.provider} />
@@ -19,10 +18,7 @@ export function AgentSummary({ agent, status, models = [], online = true, showSt
         <span className="agent-model">{label}</span>
         {counts && <span className="agent-counts"> · {counts}</span>}
       </small>
-      {showStatus && <small className={`agent-state-line ${indicator.kind}`}>
-        <span>{indicator.label}</span>{unread && <strong className="unread-label">New activity</strong>}
-      </small>}
     </span>
-    <span className="agent-end"><AgentActivity agent={agent} status={status} online={online} /></span>
+    <span className="agent-end"><AgentActivity agent={agent} status={status} online={online} unread={unread} /></span>
   </>;
 }
