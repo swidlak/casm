@@ -1437,6 +1437,8 @@ textarea::placeholder {
 .actions button.interrupt:hover {
   background: var(--attention-soft);
 }
+.attention-banner { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 16px; border-bottom: 2px solid #bd843b; background: var(--bg); max-height: 25dvh; overflow: auto; }
+.attention-banner button { min-height: 44px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .pending {
   flex-shrink: 0;
   max-height: 28dvh;

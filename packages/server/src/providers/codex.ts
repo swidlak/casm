@@ -7,7 +7,7 @@ import { toolImages, viewedImage } from "./tool-images.ts";
 // `thread/items/list`, with `thread/read` for stores without item pagination.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import spawn from "cross-spawn";
-import { stopProcess } from "../platform.ts";
+import { stopProcess, codexExecutable } from "../platform.ts";
 import { createInterface } from "node:readline";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
@@ -488,7 +488,7 @@ class Rpc {
   onExit: (error?: string) => void = () => {};
 
   constructor(cwd: string, env: Record<string, string>) {
-    const bin = process.env.CASM_CODEX_PATH ?? "codex";
+    const bin = codexExecutable();
     this.child = spawn(bin, ["app-server"], { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
     this.child.stderr.on("data", (d: Buffer) => (this.stderr = (this.stderr + d.toString()).slice(-2000)));
     createInterface({ input: this.child.stdout }).on("line", (line) => this.handle(line));

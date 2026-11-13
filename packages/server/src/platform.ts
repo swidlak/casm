@@ -1,6 +1,26 @@
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, readdirSync, statSync } from "node:fs";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import { spawnSync, type ChildProcess } from "node:child_process";
+
+/** Re-resolve desktop bundles for each session: updates can remove old helpers. */
+export function codexExecutable(env: NodeJS.ProcessEnv = process.env): string {
+  const root = env.CASM_CODEX_BIN_DIR;
+  if (!root) return env.CASM_CODEX_PATH ?? "codex";
+  const candidates: { path: string; modified: number }[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const path = join(root, entry.name, "codex.exe");
+    try {
+      const binary = statSync(path);
+      const helper = statSync(join(root, entry.name, "codex-code-mode-host.exe"));
+      if (binary.isFile() && binary.size > 0 && helper.isFile() && helper.size > 0)
+        candidates.push({ path, modified: binary.mtimeMs });
+    } catch { /* Incomplete or removed desktop bundle. */ }
+  }
+  candidates.sort((a, b) => b.modified - a.modified || a.path.localeCompare(b.path));
+  if (!candidates.length) throw new Error("No complete Codex desktop bundle found. Finish updating the desktop app; codex.exe and codex-code-mode-host.exe must be installed together.");
+  return candidates[0].path;
+}
 
 /** Resolve a program without starting a shell, including Windows PATHEXT. */
 export function findExecutable(command: string, env: NodeJS.ProcessEnv = process.env): string | undefined {

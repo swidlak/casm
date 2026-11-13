@@ -1,13 +1,39 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn as nodeSpawn } from "node:child_process";
 import { once } from "node:events";
 import spawn from "cross-spawn";
-import { findExecutable, shellCommand, killProcessTree } from "../src/platform.ts";
+import { findExecutable, shellCommand, killProcessTree, codexExecutable } from "../src/platform.ts";
 import { searchFiles } from "../src/fs-search.ts";
+
+test("desktop discovery skips incomplete updates and rechecks bundles on every launch", () => {
+  const root = mkdtempSync(join(tmpdir(), "casm desktop bundles "));
+  const env = { CASM_CODEX_BIN_DIR: root, CASM_CODEX_PATH: "obsolete.exe" };
+  const bundle = (name: string, time: number, complete = true) => {
+    const dir = join(root, name);
+    mkdirSync(dir);
+    const exe = join(dir, "codex.exe");
+    writeFileSync(exe, "test");
+    utimesSync(exe, time, time);
+    if (complete) writeFileSync(join(dir, "codex-code-mode-host.exe"), "test");
+    return exe;
+  };
+  try {
+    assert.throws(() => codexExecutable(env), /No complete Codex/);
+    const old = bundle("old", 100);
+    const next = bundle("next", 200, false);
+    assert.equal(codexExecutable(env), old);
+    writeFileSync(join(root, "next", "codex-code-mode-host.exe"), "test");
+    assert.equal(codexExecutable(env), next);
+    rmSync(join(root, "next", "codex-code-mode-host.exe"));
+    assert.equal(codexExecutable(env), old);
+    assert.equal(codexExecutable({ CASM_CODEX_PATH: "custom" }), "custom");
+    assert.equal(codexExecutable({}), "codex");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test("program discovery handles spaces, missing programs and Windows PATHEXT", () => {
   const dir = mkdtempSync(join(tmpdir(), "casm program path "));

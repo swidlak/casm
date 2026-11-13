@@ -18,6 +18,14 @@ $env:CASM_CODEX_PATH = 'C:\tools\codex.exe'
 casm serve --listen 127.0.0.1:7373
 ```
 
+For a desktop-managed Codex installation that updates its versioned binaries,
+set `CASM_CODEX_BIN_DIR` to the app's `bin` directory instead of pinning a hash
+in `CASM_CODEX_PATH`. CASM rechecks this directory before each provider launch,
+selecting the most recently modified bundle containing both `codex.exe` and
+`codex-code-mode-host.exe`. Incomplete bundles are skipped; no complete bundle
+produces an explicit startup error. This opt-in directory takes precedence over
+`CASM_CODEX_PATH`. Already running sessions keep their current process.
+
 The normal quick-start token and browser flow applies. Use a separate named
 token per device. Keep the listener on loopback and use a private HTTPS proxy
 such as Tailscale Serve for a phone. The laptop must remain awake and connected.

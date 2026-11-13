@@ -39,6 +39,7 @@ import { HostActions, HostIdentity, hostStateLabel, type HostState } from "./hos
 import { schedulesChanged } from "./project-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
+import { waitingAgents } from "./attention";
 import { agentHierarchy } from "./agent-hierarchy";
 import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
@@ -266,8 +267,8 @@ function App() {
   async function load(host: string, id: string, reconnect = false) {
     const c = chat(key(host, id));
     if (c.loading) return;
-    // Cached history remains valid, but the queue can change while unselected.
-    if (c.loaded && !reconnect) return refreshPending(host, id);
+    // Always resubscribe on selection: cached history is not proof that live
+    // permissions/questions are current. Buffer events during the snapshot below.
     c.loading = true;
     redraw();
     try {
@@ -1097,6 +1098,17 @@ function App() {
         </header>
         <ConnectionBanner online={online} fresh={fresh} checking={checking} networkOffline={networkOffline}
           connected={everOnline.current} savedAt={c.cachedAt ?? savedAt} />
+        {online && fresh && waitingAgents(hosts).length > 0 && (
+          <section className="attention-banner" aria-label="Conversations needing your decision" aria-live="polite">
+            <strong>Needs your decision</strong>
+            {waitingAgents(hosts).map(a => (
+              <button key={key(a.host, a.id)} type="button" onClick={() => {
+                choose(a);
+                void run(() => load(a.host, a.id, true));
+              }}>Open request: {a.name} ({a.hostName})</button>
+            ))}
+          </section>
+        )}
         {error && (
           <div role="alert" className="error banner">
             {error}
