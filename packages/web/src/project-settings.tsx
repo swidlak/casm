@@ -7,8 +7,9 @@ import { ServerGlyph } from "./host-menu";
 import { copy } from "./transcript";
 import { offlineNote } from "./connection";
 import { ProjectSchedules } from "./project-schedules";
+import { ArchivedChats } from "./chat-options";
 
-export type ProjectSection = "instructions" | "memories" | "schedules";
+export type ProjectSection = "instructions" | "memories" | "schedules" | "archive";
 
 /** The project row's ⋯ button: opens the project modal. */
 export function ProjectOptions({ host, hostName, project, agents, rpc, online, newAgent, openAgent }: {
@@ -36,13 +37,14 @@ export function ProjectSettings({ host, hostName, project, agents, rpc, online, 
   const [section, setSection] = useState<ProjectSection>(initialSection);
   return <SettingsDialog label={`${project.name} project`} title={<>{project.name} <span className="settings-kind">project</span></>} closeLabel="Close project options"
     subtitle={<ProjectContext project={project} hostName={hostName} />}
-    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["schedules", "Schedules"]] as const} section={section} setSection={setSection} close={close}
+    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["schedules", "Schedules"], ["archive", "Archived chats"]] as const} section={section} setSection={setSection} close={close}
     actions={<button type="button" className="primary compact" disabled={!online} title={online ? "Start a new agent in this project" : offlineNote} onClick={newAgent}>New agent</button>}>
     {!online || !rpc ? <p role="status">Host offline. Reconnect to load project settings.</p> : <>
       <div hidden={section !== "instructions"}><ProjectInstructions host={host} project={project} rpc={rpc} /></div>
       {section === "memories" && <section aria-label="Project memories"><h3>Memories</h3><p className="settings-lede">Read-only provider memories for this project.</p>
         <ProjectMemories host={host} project={project} rpc={rpc} />
       </section>}
+      {section === "archive" && <ArchivedChats rpc={rpc} host={host} projectId={project.id} online={online} openAgent={openAgent} />}
       {section === "schedules" && <section aria-label="Schedules" className="settings-schedules"><h3>Schedules</h3>
         <p className="settings-lede">Prompts sent on a cadence to an agent in this project, or to a new one started here.</p>
         <ProjectSchedules host={host} rpc={rpc} online={online} project={project} agents={agents} openAgent={openAgent} /></section>}
