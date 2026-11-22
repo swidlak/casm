@@ -4,7 +4,8 @@
 // shared tabs. Sharing a tab moves it into the group; taking it out of the
 // group, closing it or the group, or the popup's Stop button unshares it. The
 // group ids live in chrome.storage.session, so a browser restart (which may
-// restore a group titled "casm") shares nothing.
+// restore a group titled "casm") or reloading the extension shares nothing.
+// Such a group is ungrouped: Chrome never shows a casm group that isn't one.
 //
 // Tabs a shared tab opens (window.open, target=_blank, OAuth popups) are
 // shared too, deliberately: flows like "sign in with…" continue in them. A
@@ -30,6 +31,8 @@ const PING_MS = 20_000;
 const CALL_TIMEOUT_MS = 10_000;
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 30_000;
+// A refused token is tried again this rarely, in case it is created again on the server.
+let REFUSED_RETRY_MS = 5 * 60_000;
 const NEW_TAB_LOAD_MS = 10_000;
 let IDLE_DETACH_MS = 30_000;
 
@@ -38,6 +41,12 @@ const conn = {
   // idle | unconfigured | connecting | connected | disconnected | refused
   status: "idle",
   detail: "",
+  // Bumped by reconnect(): a connect() that started before it gives way.
+  epoch: 0,
+  // Why the last browser.share failed, shown in the popup until one succeeds.
+  shareError: "",
+  // How many tabs the casm groups hold, for the badge.
+  sharedCount: 0,
   retryMs: RETRY_MIN_MS,
   retryTimer: undefined,
   pingTimer: undefined,
@@ -151,6 +160,17 @@ async function groupInto(tab) {
   }
 }
 
+// "casm" groups that aren't ours: left from before an extension reload, or restored with the browser.
+async function dropStrayGroups() {
+  const ours = await ourGroups();
+  for (const g of await chrome.tabGroups.query({ title: GROUP_TITLE })) {
+    if (g.title !== GROUP_TITLE || ours.includes(g.id)) continue;
+    const tabs = await chrome.tabs.query({ groupId: g.id });
+    if (tabs.length) await chrome.tabs.ungroup(tabs.map((t) => t.id)).catch(() => {});
+  }
+}
+const dropStray = () => serial(dropStrayGroups);
+
 async function dropLoose(ids) {
   const { loose = [] } = await chrome.storage.session.get("loose");
   await chrome.storage.session.set({ loose: loose.filter((id) => !ids.includes(id)) });
@@ -221,8 +241,8 @@ async function syncNow() {
   await chrome.storage.session.set({ sharedAt });
   for (const id of new Set([...Object.keys(before).map(Number), ...attached])) if (!(id in sharedAt)) await detach(id, { forget: true });
   await dropLoose(Object.keys(before).map(Number).filter((id) => !(id in sharedAt)));
-  await chrome.action.setBadgeText({ text: tabs.length ? String(tabs.length) : "" });
-  await chrome.action.setBadgeBackgroundColor({ color: conn.status === "connected" ? "#d9730d" : "#888888" });
+  conn.sharedCount = tabs.length;
+  badge();
   await publish(tabs, sharedAt);
   changed();
 }
@@ -240,8 +260,19 @@ async function publish(tabs, sharedAt) {
     // Only a shared opener: other tabs' ids are none of the server's business.
     ...(ids.has(openers[t.id] ?? t.openerTabId) ? { openerTabId: openers[t.id] ?? t.openerTabId } : {}),
   }));
-  // Sent now, before any answer this sync precedes; the reply doesn't matter.
-  call("browser.share", { browserId: await browserId(), label: s.label || defaultLabel(), tabs: shared }).catch((e) => console.warn(`casm: share failed: ${e.message}`));
+  // Sent now, before any answer this sync precedes; the reply only tells
+  // whether the server has the tabs the casm group shows.
+  call("browser.share", { browserId: await browserId(), label: s.label || defaultLabel(), tabs: shared }).then(
+    () => shareFailed(""),
+    (e) => shareFailed(`the server didn't get the shared tabs: ${e.message}`),
+  );
+}
+
+function shareFailed(why) {
+  if (why) console.warn(`casm: ${why}`);
+  if (conn.shareError === why) return;
+  conn.shareError = why;
+  changed();
 }
 
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
@@ -283,6 +314,9 @@ async function openerOf(tab) {
 chrome.debugger.onEvent.addListener((source, method, params) => act.onEvent(source, method, params));
 chrome.tabs.onAttached.addListener(() => void sync());
 chrome.tabGroups.onRemoved.addListener(() => void sync());
+// Our own groups get their title after their id is stored, so only strays go.
+chrome.tabGroups.onCreated.addListener((g) => g.title === GROUP_TITLE && void dropStray());
+chrome.tabGroups.onUpdated.addListener((g) => g.title === GROUP_TITLE && void dropStray());
 chrome.debugger.onDetach.addListener(({ tabId }) => {
   // Cancel on Chrome's debugging bar, the tab closing, DevTools taking over:
   // the session is gone, the sharing isn't. The next command attaches again.
@@ -381,8 +415,7 @@ async function openTab(url, near) {
 // ---------------------------------------------------------------------------
 // The connection
 
-function call(method, params, timeoutMs = CALL_TIMEOUT_MS) {
-  const ws = conn.ws;
+function call(method, params, timeoutMs = CALL_TIMEOUT_MS, ws = conn.ws) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("not connected"));
   const id = conn.nextId++;
   return new Promise((resolve, reject) => {
@@ -395,18 +428,40 @@ function call(method, params, timeoutMs = CALL_TIMEOUT_MS) {
   });
 }
 
+// Shared tabs whose sharing doesn't reach the server get "!": the group alone would look fine.
+const offline = () => ["refused", "disconnected", "unconfigured"].includes(conn.status);
+
+function badge() {
+  const n = conn.sharedCount;
+  void chrome.action.setBadgeText({ text: !n ? "" : offline() ? "!" : String(n) });
+  void chrome.action.setBadgeBackgroundColor({ color: conn.status === "connected" ? "#d9730d" : offline() && n ? "#b42318" : "#888888" });
+}
+
 function setStatus(status, detail = "") {
   conn.status = status;
   conn.detail = detail;
-  void chrome.action.setBadgeBackgroundColor({ color: status === "connected" ? "#d9730d" : "#888888" });
+  badge();
   changed();
 }
 
 async function connect() {
   clearTimeout(conn.retryTimer);
-  if (conn.ws || conn.status === "refused") return;
+  if (conn.ws) return;
+  const epoch = conn.epoch;
   const s = await settings();
+  // Kept in the session storage: the worker may restart meanwhile.
+  const { refusedAt = 0 } = await chrome.storage.session.get("refusedAt");
+  // Checked again after the wait: connects can overlap (the alarm, a retry,
+  // a save, the worker starting), and only one may open a socket. A second,
+  // never authenticated, would be closed by the server with 4401.
+  if (conn.ws || epoch !== conn.epoch) return;
   if (!s.url || !s.token) return setStatus("unconfigured", "set the casm server URL and a client token");
+  const wait = refusedAt + REFUSED_RETRY_MS - Date.now();
+  if (wait > 0) {
+    setStatus("refused", REFUSED_DETAIL);
+    conn.retryTimer = setTimeout(connect, wait);
+    return;
+  }
   setStatus("connecting", s.url);
   let ws;
   try {
@@ -416,13 +471,16 @@ async function connect() {
     return retryLater();
   }
   conn.ws = ws;
+  // Every handler acts for its own socket only, and only while it is the current one.
   ws.onopen = async () => {
     try {
       // Browsers can't send a header on a WebSocket: the token goes in the first request.
-      await call("auth", { token: s.token });
+      await call("auth", { token: s.token }, CALL_TIMEOUT_MS, ws);
     } catch {
       return;
     }
+    if (conn.ws !== ws) return;
+    void chrome.storage.session.remove("refusedAt");
     conn.retryMs = RETRY_MIN_MS;
     setStatus("connected", s.url);
     clearInterval(conn.pingTimer);
@@ -431,12 +489,20 @@ async function connect() {
   };
   ws.onmessage = (ev) => void onMessage(ws, ev.data);
   ws.onclose = (ev) => {
-    if (ev.code === 4401) {
+    if (conn.ws !== ws) return;
+    // 4401 also means "authenticate first": the server timed out waiting for the
+    // auth request (a worker suspended right after the socket opened, a laptop
+    // waking up). Only a rejected or revoked token stops the retries.
+    if (ev.code === 4401 && /unauthorized|revoked/.test(ev.reason)) {
+      // Stored first: the retry lost() schedules sees it and waits REFUSED_RETRY_MS.
+      void chrome.storage.session.set({ refusedAt: Date.now() });
       lost(ws, "the server refused the token");
-      setStatus("refused", "the server refused the token: create one with casm token create <name> and save it here");
+      setStatus("refused", REFUSED_DETAIL);
     } else lost(ws, ev.reason || `the connection closed (${ev.code})`);
   };
 }
+
+const REFUSED_DETAIL = "the server refused the token: create one with casm token create <name> and save it here (tried again every few minutes)";
 
 // Drops `ws` (if it is still ours) and fails everything waiting on it.
 function lost(ws, why) {
@@ -464,6 +530,8 @@ function retryLater() {
 function reconnect() {
   const ws = conn.ws;
   conn.ws = null;
+  conn.epoch++;
+  void chrome.storage.session.remove("refusedAt");
   conn.status = "idle";
   conn.retryMs = RETRY_MIN_MS;
   ws?.close();
@@ -505,6 +573,7 @@ async function state() {
   return {
     status: conn.status,
     detail: conn.detail,
+    shareError: conn.shareError,
     settings: { url: s.url ?? "", label: s.label ?? "", hasToken: !!s.token, defaultLabel: defaultLabel() },
     shared: tabs.map((t) => ({ id: t.id, title: t.title ?? "", url: t.url ?? "" })),
     current: current ? { id: current.id, url: current.url ?? "", shared: tabs.some((t) => t.id === current.id) } : null,
@@ -553,7 +622,9 @@ globalThis.casm = {
   share: shareTab, unshare: unshareTab, unshareAll, sync, reconnect, state, saveSettings, command,
   attached: () => [...attached],
   setIdleDetachMs: (ms) => (IDLE_DETACH_MS = ms),
+  setRefusedRetryMs: (ms) => (REFUSED_RETRY_MS = ms),
 };
 
 void connect();
+void dropStray();
 void sync();
