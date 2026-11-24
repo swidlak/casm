@@ -22,7 +22,7 @@ import { applyProviderDefaults, providerDefaults } from "./provider-defaults.ts"
 
 // `name`: the client token's name (or what started the call, e.g. a schedule).
 // `send`: writes to the client's socket (only direct connections have one).
-export type Conn = { subscriptions: Set<string>; name?: string; send?: (raw: string) => void };
+export type Conn = { localDesktop?: boolean; subscriptions: Set<string>; name?: string; send?: (raw: string) => void };
 
 export type Handlers = { [M in MethodName]: (p: Params<M>, conn: Conn) => Result<M> | Promise<Result<M>> };
 
@@ -149,8 +149,9 @@ export function createHandlers(
       return { root, entries: await searchFiles(root, p.query, p.limit) };
     },
 
-    "fs.read": (p) => files.read(p),
     "fs.list": (p) => files.list(p),
+    "fs.read": (p, conn) => files.read(p, conn.localDesktop),
+    "fs.openOnHost": (p, conn) => files.openOnHost(p.path, conn.localDesktop),
     "fs.downloadLink": (p) => files.link(p),
     "upload.start": (p) => uploads.start(p),
     "upload.chunk": (p) => uploads.chunk(p),
