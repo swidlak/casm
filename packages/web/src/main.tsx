@@ -63,6 +63,7 @@ import { DeviceSettings } from "./device-settings";
 import { readChatAppearance, writeChatAppearance } from "./chat-appearance";
 import { readNewChatProvider, writeNewChatProvider } from "./new-chat-provider";
 import { readWorkView, writeWorkView, transcriptRows, rowAt, anchorRows, type WorkView, type RowAnchor } from "./work-details";
+import { chatTitle } from "./chat-title";
 import { readChatMemory, recentChats, writeChatMemory, type ChatMemory } from "./chat-memory";
 import { FindBar, FindGlyph, findPattern, revealMatch, useFindHighlights, type FindState } from "./find-in-chat";
 import { pageAround, shownIndex, showPage, windowNewer, windowOlder, WINDOW_PAGE } from "./find-window";
@@ -949,7 +950,7 @@ function App() {
           {
             projectId: s.project,
             provider,
-            name: text.trim().slice(0, 70) || files[0]?.file.name.slice(0, 70) || "Image message",
+            name: chatTitle(text, files[0]?.file.name),
             config: { model, mode, effort },
           },
           s.host,
