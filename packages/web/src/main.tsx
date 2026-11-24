@@ -42,6 +42,7 @@ import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
 import { waitingAgents } from "./attention";
 import { agentHierarchy } from "./agent-hierarchy";
+import { recentProjectAgents } from "./recent-agents";
 import { agentStatus } from "./agent-activity";
 import { ChatOptions } from "./chat-options";
 import { readSignals, saveSignals, signalKey, observeSignal, liveSignal, sampleSignal, type ChatSignals } from "./chat-signals";
@@ -268,7 +269,16 @@ function App() {
   const [chatMemory, setChatMemory] = useState<ChatMemory>(() => readChatMemory(localStorage));
   const [viewportDebug, setViewportDebug] = useState(false);
   const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
+  const [fullProjects, setFullProjects] = useState<ReadonlySet<string>>(new Set());
+  const showAllAgents = (key: string, show: boolean) => {
+    setFullProjects(previous => {
+      const next = new Set(previous);
+      if (show) next.add(key); else next.delete(key);
+      return next;
+    });
+  };
   const toggleProject = (host: string, project: string) => {
+    showAllAgents(projectKey(host, project), false);
     setCollapsed((previous) => {
       const next = { ...previous };
       const id = projectKey(host, project);
@@ -1232,8 +1242,18 @@ function App() {
                 .map((p) => {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
-                  const agents = agentHierarchy(attentionOnly ? h.agents.filter(a => needsAttention(h, a)) : h.agents, p.id, h.serverId, a => appearance.recentFirst ? signals[signalKey(h.serverId ?? h.id, a.id)]?.activity ?? (Date.parse(a.updatedAt) || 0) : 0);
+                  const projectAgents = attentionOnly ? h.agents.filter(a => needsAttention(h, a)) : h.agents;
+                  const activity = (a: Agent) => appearance.recentFirst
+                    ? signals[signalKey(h.serverId ?? h.id, a.id)]?.activity ?? (Date.parse(a.updatedAt) || 0)
+                    : 0;
+                  const agents = agentHierarchy(projectAgents, p.id, h.serverId, activity);
                   if (attentionOnly && !agents.length) return null;
+                  const listKey = projectKey(h.id, p.id);
+                  const showAll = fullProjects.has(listKey);
+                  const recent = expanded && !attentionOnly
+                    ? recentProjectAgents(projectAgents, p.id, pinned ? selection?.id : undefined, activity) : [];
+                  const hidden = attentionOnly ? 0 : agents.length - recent.length;
+                  const rows = showAll || !hidden ? agents : agentHierarchy(recent, p.id, h.serverId, activity);
                   return (
                   <div key={p.id} className="project-group">
                     {/* The whole row folds; + starts a new agent, ⋯ opens the project modal. */}
@@ -1258,7 +1278,7 @@ function App() {
                       openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })} />
                     </div>
                     {expanded && !agents.length && <p className="sidebar-empty project-empty">No agents yet</p>}
-                    {expanded && agents.map(({ agent: a, depth }) => {
+                    {expanded && rows.map(({ agent: a, depth }) => {
                         const state = chat(key(h.id, a.id));
                         const status =
                           a.status === "idle" &&
@@ -1274,6 +1294,10 @@ function App() {
                             onChoose={chooseAgent} />
                         );
                       })}
+                    {expanded && hidden > 0 && <button type="button" className="project-show-more" aria-expanded={showAll}
+                      onClick={() => showAllAgents(listKey, !showAll)}>
+                      {showAll ? "Show recent chats" : "Show " + hidden + " more chats"}
+                    </button>}
                   </div>
                   );
                 })}
