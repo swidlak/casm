@@ -185,7 +185,7 @@ for (let i = 0; i < 65; i++) {
   });
   // Fixed order for the sidebar, even when the loop creates several rows in one millisecond.
   const createdAt = new Date(Date.UTC(2026, 0, 1) - i * 1000).toISOString();
-  store.db.prepare("UPDATE agents SET created_at = ? WHERE id = ?").run(createdAt, a.id);
+  store.db.prepare("UPDATE agents SET created_at = ?, updated_at = ? WHERE id = ?").run(createdAt, createdAt, a.id);
   histories.set(`fake-history-${i}`, [...history]);
   store.updateAgent(a.id, { nativeSessionId: `fake-history-${i}` });
 }

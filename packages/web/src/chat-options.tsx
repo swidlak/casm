@@ -4,33 +4,43 @@ import type { Agent } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { MoreGlyph } from "./row-menu";
 import { providerNames } from "./provider-icon";
+import { ChatRename } from "./chat-rename";
 
 export function ChatOptions({ agent, rpc, host, online, archived }: {
   agent: Agent; rpc: Rpc | null; host: string; online: boolean; archived: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { if (open) dialog.current?.showModal(); }, [open]);
-  const close = () => { setOpen(false); setConfirm(false); setError(""); trigger.current?.focus(); };
+  const close = () => { setOpen(false); setConfirm(false); setRenaming(false); setError(""); trigger.current?.focus(); };
   return <>
     <button type="button" className="launcher-trigger chat-options-trigger" aria-label="Chat options" title="Chat options" ref={trigger} onClick={() => setOpen(true)}><MoreGlyph /></button>
     {open && createPortal(<dialog ref={dialog} className="confirm-dialog chat-options" aria-label="Chat options" onClose={close} onCancel={event => { if (busy) event.preventDefault(); }}>
       <h2>Chat options</h2><p className="chat-options-name">{agent.name}</p>
+      {renaming ? <ChatRename agent={agent} rpc={rpc} host={host} online={online}
+        saved={() => dialog.current?.close()} cancel={() => setRenaming(false)} saving={setBusy} /> : <>
       <p>Archive hides this chat on all devices and keeps its history. Restore it under Project options &gt; Archived chats.</p>
       {(agent.status === "running" || agent.status === "waiting" || !!agent.pending?.count) && <p className="error">Archiving stops this agent. Queued messages will wait until it is restored.</p>}
       {error && <p role="alert" className="error">{error}</p>}
       <div className="confirm-actions">
         <button type="button" disabled={busy} onClick={() => dialog.current?.close()}>Cancel</button>
+        <button type="button" disabled={!online || !rpc || busy} onClick={() => {
+          setConfirm(false);
+          setError("");
+          setRenaming(true);
+        }}>Rename chat</button>
         <button type="button" disabled={!online || !rpc || busy} className={confirm ? "danger" : ""} onClick={() => {
           if (!confirm) { setConfirm(true); return; }
           setBusy(true); setError("");
           void rpc!.call("agent.update", { id: agent.id, archived: true }, host).then(() => { close(); archived(); }, e => setError(String(e.message ?? e))).finally(() => setBusy(false));
         }}>{busy ? "Archiving..." : confirm ? "Confirm archive" : "Archive chat"}</button>
       </div>
+      </>}
     </dialog>, document.body)}
   </>;
 }
@@ -42,6 +52,7 @@ export function ArchivedChats({ rpc, host, projectId, online, openAgent }: {
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState<string>();
+  const [editing, setEditing] = useState<string>();
   const [name, setName] = useState("");
   useEffect(() => {
     let current = true;
@@ -56,13 +67,23 @@ export function ArchivedChats({ rpc, host, projectId, online, openAgent }: {
     {agents?.map(agent => <article className="settings-card archived-chat" key={agent.id}>
       <strong>{agent.name}</strong>
       <small>{providerNames[agent.provider]} | Created {new Date(agent.createdAt).toLocaleString()}</small>
-      <div className="settings-actions">
+      {editing === agent.id ? <ChatRename agent={agent} rpc={rpc} host={host} online={online}
+        saved={updated => {
+          setAgents(list => list?.map(item => item.id === updated.id ? updated : item));
+          setEditing(undefined);
+        }}
+        cancel={() => setEditing(undefined)} saving={value => setBusy(value ? agent.id : undefined)} /> : <div className="settings-actions">
+        <button type="button" disabled={!online || !!busy} onClick={() => {
+          setEditing(agent.id);
+          setDeleting(undefined);
+          setError("");
+        }}>Rename chat</button>
         <button type="button" disabled={!online || !!busy} onClick={() => {
           setBusy(agent.id); setError("");
           void rpc.call("agent.update", { id: agent.id, archived: false }, host).then(restored => { setAgents(list => list?.filter(a => a.id !== agent.id)); openAgent(restored); }, e => setError(String(e.message ?? e))).finally(() => setBusy(undefined));
         }}>Restore chat</button>
-        <button type="button" disabled={!online || !!busy} onClick={() => { setDeleting(agent.id); setName(""); }}>Delete from CASM...</button>
-      </div>
+        <button type="button" disabled={!online || !!busy} onClick={() => { setDeleting(agent.id); setEditing(undefined); setName(""); }}>Delete from CASM...</button>
+      </div>}
       {deleting === agent.id && <div className="archive-delete-confirm">
         <p>This removes the chat entry and cannot be undone in CASM. Provider history files are kept.</p>
         <label>Type the chat name to confirm<input aria-label="Chat name to delete" value={name} onChange={event => setName(event.target.value)} /></label>
