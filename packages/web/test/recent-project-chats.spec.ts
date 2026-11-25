@@ -14,7 +14,7 @@ test("projects start with their five most recent chats and can show the rest", a
   await older.click();
   await expect(page.locator("main header strong")).toHaveText("Agent 17");
   await project.getByRole("button", { name: "Show recent chats" }).click();
-  // Opening a chat counts as recent activity in the local Windows client.
-  await expect(project.locator(".agent")).toHaveCount(5);
+  // Keep the selected older conversation visible alongside the recent five.
+  await expect(project.locator(".agent")).toHaveCount(6);
   await expect(older).toHaveAttribute("aria-current", "page");
 });

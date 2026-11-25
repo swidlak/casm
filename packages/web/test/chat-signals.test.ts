@@ -8,6 +8,7 @@ test("first snapshots and history establish a baseline without marking old messa
   assert.equal(initial.unread, false);
   const sampled = sampleSignal(initial, agent, reply("a"), false);
   assert.equal(sampled.unread, false);
+  assert.equal(sampled.messageAt, Date.parse("2026-11-02"));
   assert.equal(sampled.activity, Date.parse("2026-11-02T00:00:00Z"));
   assert.equal(observeSignal(sampled, agent, false), sampled);
 });
@@ -45,7 +46,7 @@ test("only a new assistant message marks unread, persists through reload, and cl
 });
 test("offline reply comparisons detect a message while technical items keep the last reply fingerprint", () => {
   const before = sampleSignal(undefined, agent, reply("a"), true);
-  const after = sampleSignal(before, agent, reply("b"), false, Date.parse("2026-11-04"));
+  const after = sampleSignal(before, agent, reply("b"), false, { now: Date.parse("2026-11-04") });
   assert.equal(after.unread, true);
   assert.equal(after.activity, Date.parse("2026-11-04"));
   assert.equal(sampleSignal(after, agent, { kind: "notice", id: "log", text: "Finished tool" }, false).tail, after.tail);

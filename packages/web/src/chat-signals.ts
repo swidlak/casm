@@ -1,5 +1,6 @@
 import type { Agent, Item } from "@casm/protocol";
-export type ChatSignal = { activity: number; unread: boolean; status: string; updatedAt: string; tail?: string };
+import { lastMessageTime } from "./recent-agents.ts";
+export type ChatSignal = { activity: number; messageAt?: number; unread: boolean; status: string; updatedAt: string; tail?: string };
 export type ChatSignals = Record<string, ChatSignal>;
 export const signalKey = (server: string, agent: string) => JSON.stringify([server, agent]);
 const storageKey = "casm.chat-signals-v2";
@@ -10,7 +11,7 @@ export function readSignals(storage: Pick<Storage, "getItem">): ChatSignals {
     const parsed = JSON.parse(current ?? storage.getItem("casm.chat-signals") ?? "{}");
     return Object.fromEntries(Object.entries(parsed ?? {}).filter(([key, raw]) => {
       const s = raw as ChatSignal;
-      return key.startsWith("[") && s && Number.isFinite(s.activity) && typeof s.unread === "boolean" && typeof s.status === "string" && typeof s.updatedAt === "string";
+      return key.startsWith("[") && s && Number.isFinite(s.activity) && typeof s.unread === "boolean" && typeof s.status === "string" && typeof s.updatedAt === "string" && (s.messageAt === undefined || Number.isFinite(s.messageAt));
     }).map(([key, value]) => [key, migrated ? { ...(value as ChatSignal), unread: false, tail: undefined } : value])) as ChatSignals;
   } catch { return {}; }
 }
@@ -33,7 +34,8 @@ export function liveSignal(previous: ChatSignal | undefined, agent: Pick<Agent, 
   const reply = item?.kind === "assistant" && item.text.trim() ? tailSignature(item) : undefined;
   return { ...previous, activity: Math.max(previous?.activity ?? 0, now),
     unread: reading ? false : !!previous?.unread || (reply !== undefined && reply !== previous?.tail),
-    status: agent.status, updatedAt: agent.updatedAt, ...(reply !== undefined ? { tail: reply } : {}) };
+    status: agent.status, updatedAt: agent.updatedAt, ...(reply !== undefined ? { tail: reply } : {}),
+    messageAt: Math.max(previous?.messageAt ?? 0, item ? lastMessageTime([item]) : 0) };
 }
 
 // Only a fingerprint is kept locally, not message text or attachments.
@@ -45,10 +47,12 @@ export function tailSignature(item: Item | undefined): string {
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
   return `${item.id}:${item.kind}:${hash >>> 0}`;
 }
-export function sampleSignal(previous: ChatSignal | undefined, agent: Pick<Agent, "status" | "updatedAt">, item: Item | undefined, reading: boolean, now = Date.now()): ChatSignal {
+export function sampleSignal(previous: ChatSignal | undefined, agent: Pick<Agent, "status" | "updatedAt">, item: Item | undefined, reading: boolean, { now = Date.now(), messageAt = item ? lastMessageTime([item]) : 0, trackUnread = true } = {}): ChatSignal {
   const base = previous ?? observeSignal(undefined, agent, false, now);
+  const latest = Math.max(base.messageAt ?? 0, messageAt);
+  if (!trackUnread) return base.messageAt === latest ? base : { ...base, messageAt: latest };
   const reply = item?.kind === "assistant" && item.text.trim() ? item : undefined;
   const tail = reply ? tailSignature(reply) : base.tail ?? "empty";
   const changed = !!reply && base.tail !== undefined && base.tail !== tail;
-  return { ...base, tail, activity: Math.max(base.activity, Date.parse(item?.at ?? "") || 0, changed ? now : 0), unread: reading ? false : base.unread || changed };
+  return { ...base, tail, messageAt: latest, activity: Math.max(base.activity, Date.parse(item?.at ?? "") || 0, changed ? now : 0), unread: reading ? false : base.unread || changed };
 }

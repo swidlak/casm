@@ -39,7 +39,7 @@ function DeviceDialog({ memory, change, workView, changeWorkView, appearance, ch
       <label><input type="checkbox" checked={appearance.unreadIndicators} onChange={event => changeAppearance({ ...appearance, unreadIndicators: event.target.checked })} />
         <span><strong>Show unread reply indicators</strong><small>Use a green dot for unread assistant replies.</small></span></label>
       <label><input type="checkbox" checked={appearance.recentFirst} onChange={event => changeAppearance({ ...appearance, recentFirst: event.target.checked })} />
-        <span><strong>Recent activity first</strong><small>Turn off to sort full chat lists alphabetically. Recent previews always show the latest activity first.</small></span></label>
+        <span><strong>Latest message first</strong><small>Turn off to sort full chat lists alphabetically. Recent previews always show the latest messages first.</small></span></label>
     </fieldset>
     <fieldset>
       <legend>Default agent for new chats</legend>

@@ -42,7 +42,7 @@ import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
 import { waitingAgents } from "./attention";
 import { agentHierarchy } from "./agent-hierarchy";
-import { agentActivity, recentProjectAgents } from "./recent-agents";
+import { agentActivity, lastMessageTime, recentProjectAgents } from "./recent-agents";
 import { agentStatus } from "./agent-activity";
 import { ChatOptions } from "./chat-options";
 import { readSignals, saveSignals, signalKey, observeSignal, liveSignal, sampleSignal, type ChatSignals } from "./chat-signals";
@@ -251,6 +251,8 @@ function App() {
   signalsRef.current = signals;
   const tailReads = useRef(new Map<string, symbol>()).current;
   const tailRuns = useRef(new Map<string, Rpc>()).current;
+  const repeatTailRuns = useRef(new Set<string>()).current;
+  const visibleProjects = useRef(new Set<string>()).current;
   const loadRequests = useRef(new Map<string, symbol>()).current;
   const tailChecked = useRef(new Map<string, number>()).current;
   const [pageVisible, setPageVisible] = useState(document.visibilityState === "visible" && document.hasFocus());
@@ -367,7 +369,10 @@ function App() {
         const marker = signalKey(h.serverId ?? h.id, id);
         tailReads.delete(marker);
         const reading = isReading(host, id);
-        setSignals(old => ({ ...old, [marker]: sampleSignal(old[marker], a, c.items.findLast(item => item.kind === "assistant" && !!item.text.trim()), reading) }));
+        const reply = c.items.findLast(item => item.kind === "assistant" && !!item.text.trim());
+        const messageAt = lastMessageTime(c.items);
+        if (messageAt) tailChecked.set(marker, Date.now());
+        setSignals(old => ({ ...old, [marker]: sampleSignal(old[marker], a, reply, reading, { messageAt }) }));
       }
       persistChat(key(host, id), 0);
     } finally {
@@ -398,42 +403,58 @@ function App() {
     if (h?.latencyMs === undefined || (h.latencyMs > SLOW_HOST_MS) === (ms > SLOW_HOST_MS)) return hs;
     return hs.map((x) => (x === h ? { ...x, latencyMs: ms } : x));
   })), []);
+  function inspectProject(h: Host, a: Agent) {
+    return visibleProjects.has(projectKey(h.id, a.projectId));
+  }
   async function sampleTail(h: Host, a: Agent, r: Rpc, force = false) {
-    if (!appearanceRef.current.unreadIndicators) return;
-    if (a.archivedAt || a.status === "running" || a.status === "waiting") return;
-    const selectedChat = selected.current;
-    if (selectedChat?.host === h.id && selectedChat.id === a.id) return;
+    const visible = inspectProject(h, a);
+    if (a.archivedAt || (!visible && a.status !== "idle") || chats.get(key(h.id, a.id))?.loading) return;
     const id = signalKey(h.serverId ?? h.id, a.id);
-    if (!force && (tailReads.has(id) || Date.now() - (tailChecked.get(id) ?? 0) < 30_000)) return;
+    const trackUnread = a.status === "idle" && appearanceRef.current.unreadIndicators &&
+      (force || signalsRef.current[id]?.tail !== undefined || knownVisits[agentRecentKey(h.id, a.id)] !== undefined);
+    if (!trackUnread && !visible) return;
+    if (tailReads.has(id) || (!force && Date.now() - (tailChecked.get(id) ?? 0) < 30_000)) return;
     const request = Symbol(); tailReads.set(id, request);
     try {
       let before: number | undefined;
       let reply: Item | undefined;
+      let messageAt = 0;
       do {
         const result = await r.call("agent.history", { id: a.id, limit: 40, ...(before !== undefined ? { before } : {}) }, h.id);
         if (rpc.current !== r || tailReads.get(id) !== request) return;
-        reply = result.items.findLast(item => item.kind === "assistant" && !!item.text.trim());
-        if (reply || result.start === 0 || result.start === before) break;
+        messageAt = Math.max(messageAt, lastMessageTime(result.items));
+        if (trackUnread) reply ??= result.items.findLast(item => item.kind === "assistant" && !!item.text.trim());
+        if ((messageAt && (!trackUnread || reply)) || result.start === 0 || result.start === before) break;
         before = result.start;
       } while (r.open);
       tailChecked.set(id, Date.now());
       const reading = isReading(h.id, a.id);
-      setSignals(old => ({ ...old, [id]: sampleSignal(old[id], a, reply, reading) }));
+      setSignals(old => ({ ...old, [id]: sampleSignal(old[id], a, reply, reading, { messageAt, trackUnread }) }));
     } catch { /* Offline or inaccessible history never clears an unread marker. */ }
     finally { if (tailReads.get(id) === request) tailReads.delete(id); }
   }
   async function sampleHost(h: Host, r: Rpc) {
-    if (!appearanceRef.current.unreadIndicators) return;
     const owner = h.serverId ?? h.id;
-    if (tailRuns.get(owner) === r) return;
+    if (tailRuns.get(owner) === r) {
+      repeatTailRuns.add(owner);
+      return;
+    }
     tailRuns.set(owner, r);
     try {
-      const agents = h.agents.filter(a => !a.archivedAt && a.nativeSessionId && a.status === "idle" && (signalsRef.current[signalKey(h.serverId ?? h.id, a.id)]?.tail !== undefined || knownVisits[agentRecentKey(h.id, a.id)] !== undefined));
-      for (const a of agents) {
+      const visible = h.agents.filter(a => inspectProject(h, a));
+      const background = h.agents.filter(a => a.nativeSessionId && !inspectProject(h, a));
+      for (const a of [...visible, ...background]) {
         if (rpc.current !== r || !r.open || document.visibilityState !== "visible") break;
         await sampleTail(h, a, r);
       }
-    } finally { if (tailRuns.get(owner) === r) tailRuns.delete(owner); }
+    } finally {
+      if (tailRuns.get(owner) === r) {
+        tailRuns.delete(owner);
+        const again = repeatTailRuns.delete(owner);
+        const latest = hostsRef.current.find(host => host.id === h.id);
+        if (again && latest && rpc.current === r && r.open) void sampleHost(latest, r);
+      }
+    }
   }
   async function refresh() {
     const r = rpc.current!;
@@ -483,6 +504,28 @@ function App() {
       if (generation === refreshes.current && rpc.current === r && r.open) setFresh(true);
     }
   }
+  const sidebarProjects = JSON.stringify(hosts.map(h => h.projects.map(p => projectKey(h.id, p.id))));
+  useEffect(() => {
+    if (!online || !pageVisible) return;
+    const nav = document.querySelector("#conversation-sidebar nav");
+    if (!nav) return;
+    const observer = new IntersectionObserver(entries => {
+      let entered = false;
+      for (const entry of entries) {
+        const id = (entry.target as HTMLElement).dataset.recentProject!;
+        if (entry.isIntersecting) {
+          entered = entered || !visibleProjects.has(id);
+          visibleProjects.add(id);
+        } else visibleProjects.delete(id);
+      }
+      const r = rpc.current;
+      if (entered && r?.open) {
+        for (const h of hostsRef.current) if (!h.error) void sampleHost(h, r);
+      }
+    }, { root: nav });
+    for (const node of nav.querySelectorAll("[data-recent-project]")) observer.observe(node);
+    return () => { observer.disconnect(); visibleProjects.clear(); };
+  }, [sidebarProjects, collapsed, selection?.project, selection?.host, sidebar, online, pageVisible]);
   useEffect(() => {
     if (!token) return;
     let active = true;
@@ -505,6 +548,7 @@ function App() {
         setOnline(v);
         if (!v) {
           loadRequests.clear();
+          tailChecked.clear();
           buffers.clear();
           for (const c of chats.values()) { c.loaded = false; c.loading = false; }
           if (freshRef.current) setSavedAt(r.lastSeen || Date.now());
@@ -532,7 +576,7 @@ function App() {
           redraw();
         }
         if (n.method === "agent.status" || n.method === "agent.changed") {
-          // Status changes update recency, but never mark a message unread.
+          // Status changes may affect the unread baseline, independent of message order.
           if (n.method === "agent.status") {
             const h = hostsRef.current.find(h => h.id === host);
             const a = h?.agents.find(a => a.id === p.agentId);
@@ -1213,13 +1257,15 @@ function App() {
         </header>
         <div className="chat-sidebar-tools">
           <button type="button" aria-pressed={attentionOnly} onClick={() => setAttentionOnly(value => !value)}>Needs attention ({attentionCount})</button>
-          {attentionOnly ? <small>{appearance.unreadIndicators ? "Waiting, failed or new activity" : "Waiting or failed"}</small>
-            : <button type="button" aria-label="Sort full conversation lists by latest activity" aria-pressed={appearance.recentFirst}
+          <div className="chat-sort-options" role="group" aria-label="Sort conversations">
+            {[true, false].map(recentFirst => <button key={String(recentFirst)} type="button" aria-pressed={appearance.recentFirst === recentFirst}
               onClick={() => {
-                const next = { ...appearance, recentFirst: !appearance.recentFirst };
+                const next = { ...appearance, recentFirst };
                 setAppearance(next);
                 writeChatAppearance(localStorage, next);
-              }}>{appearance.recentFirst ? "Newest first" : "A-Z"}</button>}
+              }}>{recentFirst ? "Latest message" : "A-Z"}</button>)}
+          </div>
+          {attentionOnly && <small>{appearance.unreadIndicators ? "Waiting, failed or new activity" : "Waiting or failed"}</small>}
         </div>
         <nav aria-label="Agents">
           {attentionOnly && attentionCount === 0 && <p className="sidebar-empty">No chats need attention.</p>}
@@ -1250,9 +1296,7 @@ function App() {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
                   const projectAgents = attentionOnly ? h.agents.filter(a => needsAttention(h, a)) : h.agents;
-                  const activity = (a: Agent) => Math.max(
-                    signals[signalKey(h.serverId ?? h.id, a.id)]?.activity ?? 0, agentActivity(a),
-                  );
+                  const activity = (a: Agent) => agentActivity(a, signals[signalKey(h.serverId ?? h.id, a.id)]?.messageAt);
                   const agents = agentHierarchy(projectAgents, p.id, h.serverId, appearance.recentFirst ? activity : null);
                   if (attentionOnly && !agents.length) return null;
                   const listKey = projectKey(h.id, p.id);
@@ -1264,7 +1308,7 @@ function App() {
                   return (
                   <div key={p.id} className="project-group">
                     {/* The whole row folds; + starts a new agent, ⋯ opens the project modal. */}
-                    <div className={`project-row ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}>
+                    <div data-recent-project={expanded ? listKey : undefined} className={`project-row ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}>
                     <button className="project-toggle"
                       aria-label={`Toggle ${p.name}`}
                       aria-expanded={expanded}

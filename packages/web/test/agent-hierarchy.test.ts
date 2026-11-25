@@ -36,5 +36,5 @@ test("newest activity sorts sibling/root blocks and a recent child brings its pa
   const activity: Record<string, number> = { "old-root": 1, child: 5, "new-root": 3, "old-child": 2 };
   assert.deepEqual(agentHierarchy(agents, "project", "canonical", a => activity[a.id]).map(r => [r.agent.id, r.depth]),
     [["old-root", 0], ["child", 1], ["old-child", 1], ["new-root", 0]]);
-  assert.deepEqual(agentHierarchy([agent("a", undefined, { updatedAt: "2026-11-01" }), agent("z", undefined, { updatedAt: "2026-11-02" })], "project", "canonical").map(r => r.agent.id), ["z", "a"]);
+  assert.deepEqual(agentHierarchy([agent("a", undefined, { createdAt: "2026-11-01" }), agent("z", undefined, { createdAt: "2026-11-02" })], "project", "canonical").map(r => r.agent.id), ["z", "a"]);
 });

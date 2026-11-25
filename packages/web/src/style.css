@@ -3298,6 +3298,8 @@ footer .device-settings .exit-glyph { width: 16px; height: 16px; }
 .chat-sidebar-tools { display: grid; gap: 4px; padding: 0 12px 8px; }
 .chat-sidebar-tools button { min-height: 32px; padding: 4px 8px; font-size: 12px; text-align: left; }
 .chat-sidebar-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.chat-sort-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; }
+.chat-sort-options button:last-child { min-width: 44px; text-align: center; }
 .chat-sidebar-tools small { color: var(--muted); font-size: 10.5px; }
 @media (max-width: 650px) { .chat-sidebar-tools button { min-height: 40px; } }
 
