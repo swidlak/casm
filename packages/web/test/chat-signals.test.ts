@@ -24,6 +24,12 @@ test("status, configuration, own messages and tool events never create an unread
     assert.equal(sampleSignal(state, agent, item, false).unread, false);
   }
 });
+test("refresh keeps the recorded update time instead of giving older updates the same time", () => {
+  const initial = observeSignal(undefined, agent, false);
+  const observed = Date.parse("2026-11-09T00:00:00Z");
+  const update = "2026-11-04T00:00:00Z";
+  assert.equal(observeSignal(initial, { ...agent, updatedAt: update }, false, observed).activity, Date.parse(update));
+});
 test("only a new assistant message marks unread, persists through reload, and clears when read", () => {
   let state = sampleSignal(undefined, agent, reply("a"), true);
   state = liveSignal(state, agent, false, Date.now(), reply("b"));

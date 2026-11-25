@@ -25,9 +25,9 @@ test("missing and archived parents do not hide children; cycles and self links r
     agent("a", "b"), agent("b", "a"), agent("nested", "a"), agent("self", "self")];
   assert.deepEqual(rows(agents), [["a", 0], ["nested", 1], ["b", 0], ["orphan", 0], ["self", 0], ["visible", 0]]);
 });
-test("equal names sort by createdAt then id without mutating input", () => {
+test("alphabetical mode sorts equal names consistently without mutating input", () => {
   const agents = [agent("z", undefined, { name: "same", createdAt: "2027-01-01" }), agent("b", undefined, { name: "same" }), agent("a", undefined, { name: "same" })];
-  assert.deepEqual(rows(agents), [["a", 0], ["b", 0], ["z", 0]]);
+  assert.deepEqual(agentHierarchy(agents, "project", "canonical", null).map(r => [r.agent.id, r.depth]), [["a", 0], ["b", 0], ["z", 0]]);
   assert.deepEqual(agents.map((agent) => agent.id), ["z", "b", "a"]);
 });
 

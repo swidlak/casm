@@ -24,7 +24,9 @@ export function observeSignal(previous: ChatSignal | undefined, agent: Pick<Agen
   const changed = previous.status !== agent.status || previous.updatedAt !== agent.updatedAt;
   const unread = reading ? false : previous.unread;
   if (!changed && previous.unread === unread) return previous;
-  return { ...previous, activity: changed ? Math.max(previous.activity, now, Date.parse(agent.updatedAt) || 0) : previous.activity,
+  // A refreshed snapshot can contain many older updates. Keep their own times.
+  return { ...previous, activity: Math.max(previous.activity, Date.parse(agent.updatedAt) || 0,
+    previous.status !== agent.status ? now : 0),
     unread, status: agent.status, updatedAt: agent.updatedAt };
 }
 export function liveSignal(previous: ChatSignal | undefined, agent: Pick<Agent, "status" | "updatedAt">, reading: boolean, now = Date.now(), item?: Item): ChatSignal {

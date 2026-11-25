@@ -42,7 +42,7 @@ import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
 import { waitingAgents } from "./attention";
 import { agentHierarchy } from "./agent-hierarchy";
-import { recentProjectAgents } from "./recent-agents";
+import { agentActivity, recentProjectAgents } from "./recent-agents";
 import { agentStatus } from "./agent-activity";
 import { ChatOptions } from "./chat-options";
 import { readSignals, saveSignals, signalKey, observeSignal, liveSignal, sampleSignal, type ChatSignals } from "./chat-signals";
@@ -1213,7 +1213,13 @@ function App() {
         </header>
         <div className="chat-sidebar-tools">
           <button type="button" aria-pressed={attentionOnly} onClick={() => setAttentionOnly(value => !value)}>Needs attention ({attentionCount})</button>
-          <small>{attentionOnly ? (appearance.unreadIndicators ? "Waiting, failed or new activity" : "Waiting or failed") : (appearance.recentFirst ? "Recent activity first" : "Alphabetical order")}</small>
+          {attentionOnly ? <small>{appearance.unreadIndicators ? "Waiting, failed or new activity" : "Waiting or failed"}</small>
+            : <button type="button" aria-label="Sort full conversation lists by latest activity" aria-pressed={appearance.recentFirst}
+              onClick={() => {
+                const next = { ...appearance, recentFirst: !appearance.recentFirst };
+                setAppearance(next);
+                writeChatAppearance(localStorage, next);
+              }}>{appearance.recentFirst ? "Newest first" : "A-Z"}</button>}
         </div>
         <nav aria-label="Agents">
           {attentionOnly && attentionCount === 0 && <p className="sidebar-empty">No chats need attention.</p>}
@@ -1244,10 +1250,10 @@ function App() {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
                   const projectAgents = attentionOnly ? h.agents.filter(a => needsAttention(h, a)) : h.agents;
-                  const activity = (a: Agent) => appearance.recentFirst
-                    ? signals[signalKey(h.serverId ?? h.id, a.id)]?.activity ?? (Date.parse(a.updatedAt) || 0)
-                    : 0;
-                  const agents = agentHierarchy(projectAgents, p.id, h.serverId, activity);
+                  const activity = (a: Agent) => Math.max(
+                    signals[signalKey(h.serverId ?? h.id, a.id)]?.activity ?? 0, agentActivity(a),
+                  );
+                  const agents = agentHierarchy(projectAgents, p.id, h.serverId, appearance.recentFirst ? activity : null);
                   if (attentionOnly && !agents.length) return null;
                   const listKey = projectKey(h.id, p.id);
                   const showAll = fullProjects.has(listKey);
