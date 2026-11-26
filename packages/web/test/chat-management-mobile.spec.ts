@@ -31,13 +31,19 @@ for (const width of [1440, 375]) {
           for (const a of response.result.agents as Agent[]) {
             ids.set(a.name, a.id);
             if (!dates.has(a.id)) dates.set(a.id, new Date(Date.now() - 100_000 + Number(a.name.slice(-2)) * 1000).toISOString());
-            a.updatedAt = dates.get(a.id)!;
+            a.createdAt = a.updatedAt = dates.get(a.id)!;
             a.status = statuses.get(a.id) ?? (a.name === "Agent 01" ? "waiting" : a.name === "Agent 02" ? "failed" : a.name === "Agent 03" ? "running" : "idle");
           }
         }
-        if (request?.method === "agent.history" && request.params.id && tails.has(request.params.id) && response.result) {
-          if (request.params.limit === 1) response.result.items = [tails.get(request.params.id)];
-          else response.result.items.push(tails.get(request.params.id));
+        if (request?.method === "agent.history" && request.params.id && response.result) {
+          const at = dates.get(request.params.id);
+          if (at) {
+            for (const item of response.result.items as Item[]) {
+              if (item.kind === "user" || item.kind === "assistant") item.at = at;
+            }
+          }
+          const latest = tails.get(request.params.id);
+          if (latest) response.result.items.push(latest);
         }
         socket.send(JSON.stringify(response));
       });
@@ -51,11 +57,11 @@ for (const width of [1440, 375]) {
     const rows = page.locator("nav .agent");
     await expect(rows.first()).toContainText("Agent 03");
     await page.getByRole("button", { name: "This device", exact: true }).click();
-    await page.getByRole("checkbox", { name: /Recent activity first/ }).uncheck();
+    await page.getByRole("checkbox", { name: /Latest message first/ }).uncheck();
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await expect(rows.first()).toContainText("Agent 00");
     await page.getByRole("button", { name: "This device", exact: true }).click();
-    await page.getByRole("checkbox", { name: /Recent activity first/ }).check();
+    await page.getByRole("checkbox", { name: /Latest message first/ }).check();
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await expect(rows.first()).toContainText("Agent 03");
     await expect(rows.filter({ hasText: "Agent 01" }).locator(".dot")).toHaveClass(/waiting/);
@@ -88,7 +94,7 @@ for (const width of [1440, 375]) {
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await expect(unread.locator(".dot")).toHaveClass(/unread/);
     await expect(unread.locator(".agent-name")).toHaveCSS("font-weight", "500");
-    expect(await unread.locator(".agent-summary").evaluate(el => el.children.length)).toBe(2);
+    expect(await unread.locator(".agent-summary").evaluate(el => el.children.length)).toBe(1);
     notify!("Agent 00", "running");
     await expect(unread.locator(".dot")).toHaveClass(/unread/);
     notify!("Agent 00", "waiting");
@@ -127,10 +133,10 @@ for (const width of [1440, 375]) {
     if (test.info().project.use.hasTouch) {
       await scroller.dispatchEvent("touchmove"); await scroller.evaluate(el => el.scrollBy(0, -600));
     } else { await scroller.hover(); await page.mouse.wheel(0, -600); }
-    await expect(page.getByRole("button", { name: /Latest/ })).toBeVisible();
+    await expect(page.locator("main").getByRole("button", { name: /Latest/ })).toBeVisible();
     deliver!("Agent 00", { kind: "assistant", id: "new-while-reading-history", text: "A newer message while you read history.", at: new Date().toISOString() });
     await expect(rows.filter({ hasText: "Agent 00" }).locator(".dot")).toHaveClass(/unread/);
-    await page.getByRole("button", { name: /Latest/ }).click();
+    await page.locator("main").getByRole("button", { name: /Latest/ }).click();
     await expect(page.getByText("A newer message while you read history.", { exact: true })).toBeVisible();
     await expect(rows.filter({ hasText: "Agent 00" }).locator(".dot")).not.toHaveClass(/unread/);
   });

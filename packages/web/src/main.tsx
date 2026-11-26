@@ -6,6 +6,7 @@ import "./register-service-worker";
 import "./input-modality";
 import { ComposerPickers } from "./composer-pickers";
 import { ProjectOptions } from "./project-settings";
+import { orderedProjects, readProjectOrders, saveProjectOrders } from "./project-order";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
 import { evict, hold, leave, replaceHistory } from "./state";
@@ -72,11 +73,10 @@ import "./style.css";
 import { SidebarResize, useSidebarWidth } from "./sidebar-resize";
 // Same threshold the server uses for a slow peer probe.
 const SLOW_HOST_MS = 2000;
-const noModels: ModelInfo[] = [];
 const coarsePointer = matchMedia("(pointer: coarse)");
 // Memoized: transcript deltas re-render App often, and the sidebar can hold 100+ agents.
-const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, online, models, unread, onChoose }: {
-  agent: Agent; host: string; depth: number; status: string; selected: boolean; online: boolean; models: ModelInfo[]; unread: boolean;
+const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, online, unread, onChoose }: {
+  agent: Agent; host: string; depth: number; status: string; selected: boolean; online: boolean; unread: boolean;
   onChoose: (s: Selection) => void;
 }) {
   return (
@@ -87,7 +87,7 @@ const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, 
       style={{ "--agent-depth": depth } as React.CSSProperties}
       onClick={() => onChoose({ host, project: agent.projectId, id: agent.id })}
     >
-      <AgentSummary agent={agent} status={status} online={online} models={models} unread={unread} />
+      <AgentSummary agent={agent} status={status} online={online} unread={unread} />
     </button>
   );
 });
@@ -180,6 +180,8 @@ function App() {
     if (c?.loaded) void cache.current?.saveChat(k, { items: c.items, start: c.start, pending: c.pending }).catch(() => {});
   }
   const [hosts, setHosts] = useState<Host[]>([]);
+  const [projectOrders, setProjectOrders] = useState(() => readProjectOrders(localStorage));
+  useEffect(() => saveProjectOrders(localStorage, projectOrders), [projectOrders]);
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
   const [selection, select] = useState<{
@@ -1270,6 +1272,8 @@ function App() {
         <nav aria-label="Agents">
           {attentionOnly && attentionCount === 0 && <p className="sidebar-empty">No chats need attention.</p>}
           {hosts.map((h) => {
+            const hostKey = h.serverId ?? h.id;
+            const projects = orderedProjects(h.projects, projectOrders[hostKey]);
             const state: HostState = !online || h.error ? "offline"
               : h.loading && h.latencyMs === undefined ? "connecting"
               : (h.latencyMs ?? 0) > SLOW_HOST_MS ? "slow" : "online";
@@ -1278,6 +1282,7 @@ function App() {
             <HostSection key={h.id} host={h.id} name={h.name} status={`${hostStateLabel(state)}${working ? ` · ${working} working` : ""}`}
               identity={<HostIdentity name={h.name} state={state} bare />}
               menu={<HostActions host={h.id} name={h.name} state={state} rpc={rpc.current} projects={h.projects}
+                  projectOrder={projects.length > 1 ? { projects, change: ids => setProjectOrders(prev => ({ ...prev, [hostKey]: ids })) } : undefined}
                   openProject={project => {
                     setHosts(list => list.map(item => item.id === h.id ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
                     choose({ host: h.id, project: project.id });
@@ -1285,14 +1290,7 @@ function App() {
                   />}>
               {h.error && <p className="host-error" title={h.error}>{h.error}</p>}
               {!h.error && !h.loading && !h.projects.length && <p className="sidebar-empty">No projects on this host yet.</p>}
-              {[...h.projects]
-                .sort(
-                  (a, b) =>
-                    a.sort - b.sort ||
-                    a.name.localeCompare(b.name) ||
-                    a.id.localeCompare(b.id),
-                )
-                .map((p) => {
+              {projects.map((p) => {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
                   const projectAgents = attentionOnly ? h.agents.filter(a => needsAttention(h, a)) : h.agents;
@@ -1341,7 +1339,6 @@ function App() {
                           <AgentRow key={a.id} agent={a} host={h.id} depth={depth} status={status} online={online && !h.error}
                             selected={selection?.id === a.id && selection.host === h.id}
                             unread={appearance.unreadIndicators && !!signals[signalKey(h.serverId ?? h.id, a.id)]?.unread}
-                            models={h.id === selection?.host && a.provider === provider && catalog.models.length ? catalog.models : rowModels[`${h.id}\n${a.provider}`] ?? noModels}
                             onChoose={chooseAgent} />
                         );
                       })}
